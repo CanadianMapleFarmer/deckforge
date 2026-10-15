@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use deckforge_analysis::decode::is_supported;
+use walkdir::WalkDir;
 
 use super::m3u::{is_playlist_file, parse_m3u};
 use super::Node;
@@ -33,12 +34,38 @@ fn node_name(node: &Node) -> &str {
     }
 }
 
+fn is_hidden(path: &Path) -> bool {
+    path.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))
+}
+
+fn collect_audio(dir: &Path, audio: &mut Vec<PathBuf>) {
+    let walk = WalkDir::new(dir).follow_links(true).sort_by_file_name().into_iter();
+    for entry in walk.filter_entry(|e| !is_hidden(e.path())).filter_map(Result::ok) {
+        if entry.file_type().is_file() && is_supported(entry.path()) {
+            audio.push(entry.into_path());
+        }
+    }
+}
+
+fn pool_layout(subdirs: &[PathBuf]) -> Option<(&Path, &Path)> {
+    let named = |name: &str| subdirs.iter().find(|d| d.file_name().is_some_and(|n| n.eq_ignore_ascii_case(name)));
+    Some((named("Tracks")?, named("Playlists")?))
+}
+
+fn scan_contents(dir: &Path, audio: &mut Vec<PathBuf>) -> Vec<Node> {
+    let own = dir.to_string_lossy();
+    match scan_node(dir, audio).pop() {
+        Some(Node::Folder { source, children, .. }) if source == own => children,
+        other => other.into_iter().collect(),
+    }
+}
+
 fn scan_node(dir: &Path, audio: &mut Vec<PathBuf>) -> Vec<Node> {
     let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
     let (mut subdirs, mut tracks, mut lists) = (Vec::new(), Vec::new(), Vec::new());
     for entry in read.filter_map(Result::ok) {
         let path = entry.path();
-        if entry.file_name().to_string_lossy().starts_with('.') {
+        if is_hidden(&path) {
             continue;
         }
         if path.is_dir() {
@@ -56,8 +83,17 @@ fn scan_node(dir: &Path, audio: &mut Vec<PathBuf>) -> Vec<Node> {
 
     let mut folders = Vec::new();
     let mut playlists = Vec::new();
+    let pool = pool_layout(&subdirs);
     for sub in &subdirs {
-        for node in scan_node(sub, audio) {
+        let nodes = match pool {
+            Some((tracks_dir, _)) if sub == tracks_dir => {
+                collect_audio(sub, audio);
+                continue;
+            }
+            Some((_, playlists_dir)) if sub == playlists_dir => scan_contents(sub, audio),
+            _ => scan_node(sub, audio),
+        };
+        for node in nodes {
             match node {
                 Node::Folder { .. } => folders.push(node),
                 Node::Playlist { .. } => playlists.push(node),
@@ -80,12 +116,13 @@ fn scan_node(dir: &Path, audio: &mut Vec<PathBuf>) -> Vec<Node> {
             entries: tracks.iter().map(|t| t.to_string_lossy().into_owned()).collect(),
         });
     }
+    let has_tracks = !tracks.is_empty();
     audio.extend(tracks);
 
     let sort = |nodes: &mut Vec<Node>| nodes.sort_by_key(|n| node_name(n).to_lowercase());
     sort(&mut folders);
     sort(&mut playlists);
-    if folders.is_empty() && subdirs.is_empty() && playlists.len() == 1 {
+    if has_tracks && folders.is_empty() && subdirs.is_empty() && playlists.len() == 1 {
         return playlists;
     }
     folders.extend(playlists);
@@ -181,6 +218,38 @@ pub(crate) mod tests {
         assert!(matches!(&children[0], Node::Folder { name, .. } if name == "Nested"), "folders sort first");
         assert_eq!(children[1], playlist("Mix", format!("{}#tracks", t.s("Mix")), None, vec![t.s("Mix/y.mp3")]));
         assert!(matches!(&children[2], Node::Playlist { name, .. } if name == "Sub"));
+    }
+
+    fn names(nodes: &[Node]) -> Vec<String> {
+        nodes.iter().map(|n| node_name(n).to_string()).collect()
+    }
+
+    #[test]
+    fn music_ripper_dj_export_uses_only_its_playlists() {
+        let t = TempTree::new(&[
+            ("Export/Tracks/Mira Chen/Second Wind [2024]/1-01. Second Wind.flac", ""),
+            ("Export/Tracks/Elin Voss/Half Light [2023]/1-02. Half Light.aiff", ""),
+            ("Export/Playlists/Sets/Warmup.m3u8", "#EXTM3U\n#EXTINF:-1,Mira Chen - Second Wind\n../../Tracks/Mira Chen/Second Wind [2024]/1-01. Second Wind.flac\n"),
+            ("Export/Playlists/Peak.m3u8", "#EXTM3U\n../Tracks/Elin Voss/Half Light [2023]/1-02. Half Light.aiff\n"),
+        ]);
+        let scan = scan_dir(&t.p("Export"));
+        let Node::Folder { name, children, .. } = &scan.nodes[0] else { panic!("{:?}", scan.nodes) };
+        assert_eq!(name, "Export");
+        assert_eq!(names(children), ["Sets", "Peak"]);
+        let Node::Folder { children: sets, .. } = &children[0] else { panic!() };
+        assert_eq!(names(sets), ["Warmup"]);
+        assert_eq!(scan.audio.len(), 2, "the Tracks pool still reaches the collection");
+    }
+
+    #[test]
+    fn music_ripper_folder_export_keeps_sidebar_folders() {
+        let t = TempTree::new(&[
+            ("Out/Sets/Warmup/01 - Mira Chen - Second Wind.flac", ""),
+            ("Out/Sets/Warmup/Warmup.m3u8", "#EXTM3U\n01 - Mira Chen - Second Wind.flac\n"),
+        ]);
+        let scan = scan_dir(&t.p("Out/Sets"));
+        let Node::Folder { name, children, .. } = &scan.nodes[0] else { panic!("{:?}", scan.nodes) };
+        assert_eq!((name.as_str(), names(children)), ("Sets", vec!["Warmup".to_string()]));
     }
 
     #[test]

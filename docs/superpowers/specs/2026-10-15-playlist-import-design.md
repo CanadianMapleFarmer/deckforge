@@ -42,7 +42,8 @@ For each picked directory, recursively:
 - A directory with playlist files: each `.m3u`/`.m3u8` becomes a playlist named after its `#PLAYLIST:` tag or file stem, in its order.
 - A directory with audio files and no playlist file: one playlist named after the directory, ordered by file name.
 - A directory with subdirectories becomes a folder; its own loose-track playlist (if any) and playlist-file playlists sit inside it.
-- A directory with exactly one resulting playlist and no subdirectories collapses to that playlist (no wrapper folder). A single `.m3u8` in a track folder therefore yields one playlist named after the file.
+- A track directory (one holding audio files) with exactly one resulting playlist and no subdirectories collapses to that playlist (no wrapper folder). A single `.m3u8` in a track folder therefore yields one playlist named after the file. A directory holding only playlist files stays a folder, so exported sidebar folders survive.
+- A directory with both `Tracks/` and `Playlists/` subdirectories is a pooled export (Music Ripper's DJ library layout): `Tracks/` is only added to the collection, and the contents of `Playlists/` become the directory's children.
 - Every audio file under the root is added to the collection, listed in a playlist file or not.
 - Empty directories produce nothing.
 
