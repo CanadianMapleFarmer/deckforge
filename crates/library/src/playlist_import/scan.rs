@@ -147,9 +147,11 @@ pub(crate) mod tests {
             static N: AtomicUsize = AtomicUsize::new(0);
             let root = std::env::temp_dir().join(format!("df-scan-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
             for (rel, body) in files {
-                let p = root.join(rel);
-                std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-                if !rel.ends_with('/') {
+                let p = rel.split('/').filter(|c| !c.is_empty()).fold(root.clone(), |path, part| path.join(part));
+                if rel.ends_with('/') {
+                    std::fs::create_dir_all(&p).unwrap();
+                } else {
+                    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
                     std::fs::write(&p, body).unwrap();
                 }
             }
@@ -157,7 +159,7 @@ pub(crate) mod tests {
             Self(root)
         }
         pub(crate) fn p(&self, rel: &str) -> PathBuf {
-            self.0.join(rel)
+            rel.split('/').fold(self.0.clone(), |path, part| path.join(part))
         }
         pub(crate) fn s(&self, rel: &str) -> String {
             self.p(rel).to_string_lossy().into_owned()
