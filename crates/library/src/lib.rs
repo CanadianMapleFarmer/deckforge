@@ -1,4 +1,5 @@
 mod import;
+mod playlist_import;
 mod schema;
 #[cfg(test)]
 mod tests;
