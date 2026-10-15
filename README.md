@@ -50,7 +50,8 @@ Your music files are only ever read, never modified.
 - Pad FX on each deck and one-shot Release FX (echo out, backspin, vinyl brake)
 
 **Library**
-- SQLite collection with folder import, playlists, search and background analysis
+- SQLite collection with search and background analysis
+- Playlists in nested folders, imported from music folders, M3U/M3U8 files or rekordbox XML exports, and refreshed in place on re-import
 - Spotify playlist matching to your local files (Spotify audio is never captured)
 
 **Hardware**
