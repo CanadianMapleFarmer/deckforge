@@ -14,6 +14,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 pub use import::ImportResult;
+pub use playlist_import::{PlaylistImportReport, PlaylistImportSummary};
 
 pub const ANALYSIS_VERSION: i64 = 4;
 const MAIN_CUE_SLOT: i64 = -1;
@@ -24,6 +25,8 @@ pub enum LibraryError {
     Db(#[from] rusqlite::Error),
     #[error("track {0} not found")]
     NotFound(i64),
+    #[error("{0}")]
+    Import(String),
 }
 
 pub type Result<T> = std::result::Result<T, LibraryError>;
@@ -197,6 +200,10 @@ impl Library {
 
     pub fn import_paths(&self, paths: &[PathBuf]) -> ImportResult {
         import::import_paths(&self.conn, paths)
+    }
+
+    pub fn import_playlists(&self, paths: &[PathBuf]) -> Result<PlaylistImportReport> {
+        playlist_import::import_playlists(&self.conn, paths)
     }
 
     pub fn tracks(&self, query: &str, playlist: Option<i64>) -> Result<Vec<TrackSummary>> {
