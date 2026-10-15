@@ -1,5 +1,6 @@
 pub(crate) mod m3u;
 pub(crate) mod rekordbox_xml;
+pub(crate) mod scan;
 
 use std::path::PathBuf;
 
