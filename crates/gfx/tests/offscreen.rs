@@ -189,6 +189,10 @@ fn columns_are_anchored_to_track_time_so_one_pixel_of_scroll_is_a_pure_shift() {
         ..Style::default()
     };
     let Some(mut s) = scene(style) else { return };
+    if s.r.gpu.adapter.get_info().device_type == wgpu::DeviceType::Cpu {
+        eprintln!("skipping bit-exact shift test: software rasterizers do not promise identical float rounding");
+        return;
+    }
     for d in &mut s.decks {
         d.grid = None;
         d.hot_cues = Default::default();
