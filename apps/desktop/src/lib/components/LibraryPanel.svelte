@@ -10,8 +10,20 @@
   import FolderPlus from '@lucide/svelte/icons/folder-plus';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import X from '@lucide/svelte/icons/x';
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import ContextMenu, { type MenuItem } from './ContextMenu.svelte';
 
   let searchEl = $state<HTMLInputElement | null>(null);
+  let importMenu = $state<{ x: number; y: number } | null>(null);
+  const importItems: MenuItem[] = [
+    { label: 'Add folders to collection', onselect: () => library.importFolders(false) },
+    { label: 'Import folders as playlists…', onselect: () => library.importFolders(true) },
+    { label: 'Import playlist file…', hint: 'M3U · XML', onselect: () => library.importPlaylistFile() },
+  ];
+  function openImportMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    importMenu = { x: r.left, y: r.bottom + 4 };
+  }
   export function focusSearch() {
     searchEl?.focus();
     searchEl?.select();
@@ -82,9 +94,12 @@
     {#if busy}
       <span class="pill busy"><LoaderCircle size={13} class="spin" strokeWidth={2.4} />Analysing{library.queued > 0 ? ` · ${library.queued} queued` : ''}</span>
     {/if}
-    <button class="btn btn-primary" onclick={() => library.importFolders()} disabled={library.importing}>
-        {#if library.importing}<LoaderCircle size={14} class="spin" strokeWidth={2.4} />Importing…{:else}<FolderPlus size={14} strokeWidth={2.1} />Import folders{/if}
+    <button class="btn btn-primary" onclick={openImportMenu} disabled={library.importing} aria-haspopup="menu" aria-expanded={importMenu !== null}>
+        {#if library.importing}<LoaderCircle size={14} class="spin" strokeWidth={2.4} />Importing…{:else}<FolderPlus size={14} strokeWidth={2.1} />Import<ChevronDown size={13} strokeWidth={2.2} />{/if}
     </button>
+    {#if importMenu}
+      <ContextMenu x={importMenu.x} y={importMenu.y} items={importItems} onclose={() => (importMenu = null)} />
+    {/if}
   </div>
   {/if}
   <div class="main" style="grid-template-columns:{ui.sidebarWidth}px 1fr">
