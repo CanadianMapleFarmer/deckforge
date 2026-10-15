@@ -9,7 +9,7 @@ import { toast } from './toast.svelte';
 import { ui } from './ui.svelte';
 import { waveforms } from '$lib/waveform/store';
 import { effectiveKey } from '$lib/util/camelot';
-import { visibleRows } from '$lib/util/playlistTree';
+import { ancestors, visibleRows } from '$lib/util/playlistTree';
 
 export type FocusPane = 'sidebar' | 'table';
 
@@ -190,6 +190,8 @@ class Library {
   }
 
   moveSidebar(delta: number) {
+    const hidden = this.playlistId === null ? [] : ancestors(this.playlists, this.playlistId).filter((id) => ui.collapsedFolders.has(id));
+    for (const id of hidden) ui.toggleFolder(id, true);
     const lists = this.rows.filter((r) => !r.playlist.isFolder).map((r) => r.playlist.id);
     const ids: (number | null | 'spotify')[] = [null, ...lists, 'spotify'];
     const cur = ids.indexOf(ui.browserView === 'spotify' ? 'spotify' : this.playlistId);

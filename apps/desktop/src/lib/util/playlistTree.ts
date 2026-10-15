@@ -28,3 +28,13 @@ export function visibleRows(playlists: readonly Playlist[], collapsed: ReadonlyS
   walk(null, 0);
   return rows;
 }
+
+export function ancestors(playlists: readonly Playlist[], id: number): number[] {
+  const byId = new Map(playlists.map((p) => [p.id, p]));
+  const out: number[] = [];
+  for (let parent = byId.get(id)?.parentId ?? null; parent !== null && byId.has(parent) && !out.includes(parent) && parent !== id; ) {
+    out.push(parent);
+    parent = byId.get(parent)?.parentId ?? null;
+  }
+  return out;
+}
