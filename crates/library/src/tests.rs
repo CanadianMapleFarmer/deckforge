@@ -210,3 +210,30 @@ fn loudness_round_trips_and_silence_is_not_stored() {
     lib.save_full_analysis(id, None, 0.0, &[1], 5.0, &MusicalAnalysis { loudness: Some(silent), ..Default::default() }).unwrap();
     assert_eq!(lib.analysis(id).unwrap().unwrap().loudness, None);
 }
+
+#[test]
+fn folders_nest_and_cascade_without_touching_tracks() {
+    let lib = Library::open_in_memory().unwrap();
+    let t = insert_track(&lib, "a.wav", None);
+    let folder = lib.create_playlist("Crates", None, true).unwrap();
+    let inner = lib.create_playlist("Deep", Some(folder.id), false).unwrap();
+    lib.add_to_playlist(inner.id, &[t]).unwrap();
+    lib.add_to_playlist(folder.id, &[t]).unwrap();
+    let all = lib.playlists().unwrap();
+    let f = all.iter().find(|p| p.id == folder.id).unwrap();
+    assert!(f.is_folder && f.track_count == 0);
+    assert_eq!(all.iter().find(|p| p.id == inner.id).unwrap().parent_id, Some(folder.id));
+    lib.delete_playlist(folder.id).unwrap();
+    assert!(lib.playlists().unwrap().is_empty());
+    assert_eq!(lib.track(t).unwrap().id, t);
+}
+
+#[test]
+fn renaming_marks_the_playlist_renamed() {
+    let lib = Library::open_in_memory().unwrap();
+    let p = lib.create_playlist("x", None, false).unwrap();
+    lib.rename_playlist(p.id, "y").unwrap();
+    let renamed: bool =
+        lib.conn.lock().query_row("SELECT renamed FROM playlists WHERE id = ?1", params![p.id], |r| r.get(0)).unwrap();
+    assert!(renamed);
+}

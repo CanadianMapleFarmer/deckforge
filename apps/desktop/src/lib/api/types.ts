@@ -390,6 +390,8 @@ export interface Playlist {
   id: number;
   name: string;
   trackCount: number;
+  parentId: number | null;
+  isFolder: boolean;
 }
 
 export interface ImportResult {

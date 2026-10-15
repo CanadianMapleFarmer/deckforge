@@ -61,7 +61,7 @@ fn import_query_analysis_cues_and_playlists() {
     assert_eq!(back.hot_cues[3].unwrap().color, 0xFF0000);
     assert!(back.hot_cues[0].is_none());
 
-    let pl = lib.create_playlist("Warmup").unwrap();
+    let pl = lib.create_playlist("Warmup", None, false).unwrap();
     let ids: Vec<i64> = all.iter().map(|t| t.id).collect();
     lib.add_to_playlist(pl.id, &ids).unwrap();
     lib.add_to_playlist(pl.id, &ids).unwrap();

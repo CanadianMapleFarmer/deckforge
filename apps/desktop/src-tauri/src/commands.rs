@@ -334,8 +334,14 @@ pub fn playlists_list(state: State<'_, AppState>) -> CmdResult<Vec<Playlist>> {
 }
 
 #[tauri::command]
-pub fn playlist_create(app: AppHandle, state: State<'_, AppState>, name: String) -> CmdResult<Playlist> {
-    let p = state.library.create_playlist(&name).map_err(err)?;
+pub fn playlist_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    parent_id: Option<i64>,
+    is_folder: Option<bool>,
+) -> CmdResult<Playlist> {
+    let p = state.library.create_playlist(&name, parent_id, is_folder.unwrap_or(false)).map_err(err)?;
     let _ = app.emit("library://changed", ());
     Ok(p)
 }

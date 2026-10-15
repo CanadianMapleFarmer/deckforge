@@ -81,6 +81,8 @@ pub struct Playlist {
     pub id: i64,
     pub name: String,
     pub track_count: i64,
+    pub parent_id: Option<i64>,
+    pub is_folder: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -475,23 +477,28 @@ impl Library {
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
         let conn = self.conn.lock();
         let mut st = conn.prepare(
-            "SELECT p.id, p.name, (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = p.id)
+            "SELECT p.id, p.name, (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = p.id), p.parent_id, p.is_folder
              FROM playlists p ORDER BY p.name COLLATE NOCASE",
         )?;
         let rows = st
-            .query_map([], |r| Ok(Playlist { id: r.get(0)?, name: r.get(1)?, track_count: r.get(2)? }))?
+            .query_map([], |r| {
+                Ok(Playlist { id: r.get(0)?, name: r.get(1)?, track_count: r.get(2)?, parent_id: r.get(3)?, is_folder: r.get(4)? })
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
 
-    pub fn create_playlist(&self, name: &str) -> Result<Playlist> {
+    pub fn create_playlist(&self, name: &str, parent_id: Option<i64>, is_folder: bool) -> Result<Playlist> {
         let conn = self.conn.lock();
-        conn.execute("INSERT INTO playlists (name, created_at) VALUES (?1, ?2)", params![name, unix_now()])?;
-        Ok(Playlist { id: conn.last_insert_rowid(), name: name.to_string(), track_count: 0 })
+        conn.execute(
+            "INSERT INTO playlists (name, created_at, parent_id, is_folder) VALUES (?1, ?2, ?3, ?4)",
+            params![name, unix_now(), parent_id, is_folder],
+        )?;
+        Ok(Playlist { id: conn.last_insert_rowid(), name: name.to_string(), track_count: 0, parent_id, is_folder })
     }
 
     pub fn rename_playlist(&self, id: i64, name: &str) -> Result<()> {
-        self.conn.lock().execute("UPDATE playlists SET name = ?2 WHERE id = ?1", params![id, name])?;
+        self.conn.lock().execute("UPDATE playlists SET name = ?2, renamed = 1 WHERE id = ?1", params![id, name])?;
         Ok(())
     }
 
@@ -503,6 +510,11 @@ impl Library {
     pub fn add_to_playlist(&self, id: i64, track_ids: &[i64]) -> Result<()> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
+        let is_folder: bool =
+            tx.query_row("SELECT is_folder FROM playlists WHERE id = ?1", params![id], |r| r.get(0)).optional()?.unwrap_or(false);
+        if is_folder {
+            return Ok(());
+        }
         let mut next: i64 = tx.query_row(
             "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
             params![id],

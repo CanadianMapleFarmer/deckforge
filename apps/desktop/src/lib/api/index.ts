@@ -32,7 +32,8 @@ export const api = {
   track: (id: number) => invoke<TrackSummary>('library_track', { id }),
   importPaths: (paths: string[]) => invoke<ImportResult>('library_import', { paths }),
   playlists: () => invoke<Playlist[]>('playlists_list'),
-  createPlaylist: (name: string) => invoke<Playlist>('playlist_create', { name }),
+  createPlaylist: (name: string, parentId: number | null = null, isFolder = false) =>
+    invoke<Playlist>('playlist_create', { name, parentId, isFolder }),
   renamePlaylist: (id: number, name: string) => invoke<void>('playlist_rename', { id, name }),
   deletePlaylist: (id: number) => invoke<void>('playlist_delete', { id }),
   addToPlaylist: (id: number, trackIds: number[]) => invoke<void>('playlist_add_tracks', { id, trackIds }),

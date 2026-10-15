@@ -495,11 +495,12 @@ function tick() {
 // ───────────────────────── library / settings ─────────────────────────
 
 let playlists: (Playlist & { ids: number[] })[] = [
-  { id: 1, name: 'Warm-up 21:00', trackCount: 0, ids: [1, 5, 8, 12] },
-  { id: 2, name: 'Peak hour', trackCount: 0, ids: [3, 9, 13, 7] },
-  { id: 3, name: 'Beer fest — closing', trackCount: 0, ids: [4, 2, 10] },
+  { id: 1, name: 'Warm-up 21:00', trackCount: 0, parentId: 4, isFolder: false, ids: [1, 5, 8, 12] },
+  { id: 2, name: 'Peak hour', trackCount: 0, parentId: 4, isFolder: false, ids: [3, 9, 13, 7] },
+  { id: 3, name: 'Beer fest — closing', trackCount: 0, parentId: null, isFolder: false, ids: [4, 2, 10] },
+  { id: 4, name: 'Beer fest', trackCount: 0, parentId: null, isFolder: true, ids: [] },
 ];
-let nextPlaylistId = 4;
+let nextPlaylistId = 5;
 
 const analysisProgress = (trackId: number, st: AnalysisState, queued = 0): AnalysisProgress => ({ trackId, state: st, queued });
 
@@ -930,17 +931,17 @@ export const mockApi: typeof RealApi = {
   async track(id) { return structuredClone(tracks.find((t) => t.id === id)!); },
   async importPaths() { return { added: 0, skipped: 0, failed: 0 }; },
   async playlists() { refreshCounts(); return playlists.map(({ ids: _ids, ...p }) => ({ ...p })); },
-  async createPlaylist(name) {
-    const p = { id: nextPlaylistId++, name, trackCount: 0, ids: [] as number[] };
+  async createPlaylist(name, parentId = null, isFolder = false) {
+    const p = { id: nextPlaylistId++, name, trackCount: 0, parentId, isFolder, ids: [] as number[] };
     playlists.push(p);
     emit(EVENTS.libraryChanged, null);
-    return { id: p.id, name: p.name, trackCount: 0 };
+    return { id: p.id, name: p.name, trackCount: 0, parentId, isFolder };
   },
   async renamePlaylist(id, name) { const p = playlists.find((x) => x.id === id); if (p) p.name = name; emit(EVENTS.libraryChanged, null); },
-  async deletePlaylist(id) { playlists = playlists.filter((p) => p.id !== id); emit(EVENTS.libraryChanged, null); },
+  async deletePlaylist(id) { playlists = playlists.filter((p) => p.id !== id && p.parentId !== id); emit(EVENTS.libraryChanged, null); },
   async addToPlaylist(id, trackIds) {
     const p = playlists.find((x) => x.id === id);
-    if (p) trackIds.forEach((t) => !p.ids.includes(t) && p.ids.push(t));
+    if (p && !p.isFolder) trackIds.forEach((t) => !p.ids.includes(t) && p.ids.push(t));
     emit(EVENTS.libraryChanged, null);
   },
   async removeFromPlaylist(id, trackId) {
@@ -991,10 +992,10 @@ export const mockApi: typeof RealApi = {
     const pl = SPOTIFY_PLAYLISTS.find((p) => p.id === playlistId);
     const list = spotifyTracks(playlistId);
     const ids = [...new Set(list.flatMap((t) => (t.localTrackId ? [t.localTrackId] : [])))];
-    const created = { id: nextPlaylistId++, name: `${pl?.name ?? 'Spotify import'} (Spotify)`, trackCount: ids.length, ids };
+    const created = { id: nextPlaylistId++, name: `${pl?.name ?? 'Spotify import'} (Spotify)`, trackCount: ids.length, parentId: null, isFolder: false, ids };
     playlists.push(created);
     emit(EVENTS.libraryChanged, null);
-    return { playlist: { id: created.id, name: created.name, trackCount: ids.length }, matched: ids.length, unmatched: list.length - list.filter((t) => t.localTrackId).length };
+    return { playlist: { id: created.id, name: created.name, trackCount: ids.length, parentId: null, isFolder: false }, matched: ids.length, unmatched: list.length - list.filter((t) => t.localTrackId).length };
   },
   async audioDevices() { return devices; },
   async audioOpen(req: OutputRequest) {

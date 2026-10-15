@@ -52,7 +52,7 @@ fn find_or_create_playlist(library: &Library, name: &str) -> CmdResult<Playlist>
     let existing = library.playlists().map_err(err)?.into_iter().find(|p| p.name.eq_ignore_ascii_case(name));
     match existing {
         Some(p) => Ok(p),
-        None => library.create_playlist(name).map_err(err),
+        None => library.create_playlist(name, None, false).map_err(err),
     }
 }
 
