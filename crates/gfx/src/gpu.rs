@@ -66,5 +66,5 @@ impl Gpu {
 }
 
 pub fn new_instance() -> wgpu::Instance {
-    wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle())
+    wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env())
 }

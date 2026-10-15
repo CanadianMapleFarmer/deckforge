@@ -75,5 +75,9 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --release -- -D warnings
+      - name: Select the DX12 software adapter
+        if: runner.os == 'Windows'
+        # GPU-less Windows runners crash while probing Vulkan/GL adapters.
+        run: echo "WGPU_BACKEND=dx12" >> "$env:GITHUB_ENV"
       - name: Test
         run: cargo test --workspace --release
