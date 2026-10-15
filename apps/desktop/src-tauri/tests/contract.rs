@@ -371,6 +371,13 @@ fn library_types_match_types_ts() {
     let pl = lib.create_playlist("x", None, false).unwrap();
     check("Playlist", &serde_json::to_value(pl).unwrap());
     check("ImportResult", &serde_json::to_value(deckforge_library::ImportResult::default()).unwrap());
+    let report = deckforge_library::PlaylistImportReport {
+        playlists: vec![deckforge_library::PlaylistImportSummary { id: 1, name: "x".into(), found: 1, total: 2, missing: vec!["y.mp3".into()] }],
+        ..Default::default()
+    };
+    let v = serde_json::to_value(report).unwrap();
+    check("PlaylistImportReport", &v);
+    check("PlaylistImportSummary", &v["playlists"][0]);
     let _ = std::fs::remove_dir_all(dir);
 }
 

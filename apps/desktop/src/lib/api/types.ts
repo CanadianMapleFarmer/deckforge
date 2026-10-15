@@ -400,6 +400,21 @@ export interface ImportResult {
   failed: number;
 }
 
+export interface PlaylistImportSummary {
+  id: number;
+  name: string;
+  found: number;
+  total: number;
+  missing: string[];
+}
+
+export interface PlaylistImportReport {
+  added: number;
+  skipped: number;
+  failed: number;
+  playlists: PlaylistImportSummary[];
+}
+
 export interface LoadResult {
   deck: DeckIndex;
   track: TrackSummary;

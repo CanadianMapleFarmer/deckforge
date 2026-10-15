@@ -930,6 +930,7 @@ export const mockApi: typeof RealApi = {
   async tracks(query = '', playlistId = null) { start(); return structuredClone(filterTracks(query, playlistId)); },
   async track(id) { return structuredClone(tracks.find((t) => t.id === id)!); },
   async importPaths() { return { added: 0, skipped: 0, failed: 0 }; },
+  async importPlaylists() { return { added: 0, skipped: 0, failed: 0, playlists: [] }; },
   async playlists() { refreshCounts(); return playlists.map(({ ids: _ids, ...p }) => ({ ...p })); },
   async createPlaylist(name, parentId = null, isFolder = false) {
     const p = { id: nextPlaylistId++, name, trackCount: 0, parentId, isFolder, ids: [] as number[] };
