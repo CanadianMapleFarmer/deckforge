@@ -266,6 +266,19 @@
     background: rgba(255, 255, 255, 0.09);
     border-left-color: var(--dim);
   }
+  .focused .row.cursor {
+    z-index: 1;
+    background: color-mix(in srgb, var(--fg) 17%, var(--ink));
+    border-left-color: var(--fg);
+    box-shadow: inset 2px 0 0 var(--fg), inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+  }
+  .focused .row.cursor .t,
+  .focused .row.cursor .dim {
+    color: var(--fg);
+  }
+  .focused .row.cursor .title {
+    font-weight: 680;
+  }
   .t {
     padding: 0 8px;
     overflow: hidden;
