@@ -4,12 +4,14 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 
 use super::m3u::entry_path;
+use super::scan::node_name;
 use super::Node;
 
 pub(crate) const MISSING_PREFIX: &str = "#missing:";
 
 struct Frame {
     name: String,
+    segment: String,
     folder: bool,
     by_location: bool,
     children: Vec<Node>,
@@ -52,13 +54,19 @@ impl Parser {
                 };
                 top.entries.push(entry);
             }
-            "NODE" if self.in_playlists => self.stack.push(Frame {
-                name: attr(e, "Name")?.unwrap_or_default(),
+            "NODE" if self.in_playlists => {
+                let name = attr(e, "Name")?.unwrap_or_default();
+                let twins = self.stack.last().map_or(0, |p| p.children.iter().filter(|c| node_name(c) == name).count());
+                let segment = if twins == 0 { name.clone() } else { format!("{name}[{}]", twins + 1) };
+                self.stack.push(Frame {
+                name,
+                segment,
                 folder: attr(e, "Type")?.as_deref() == Some("0"),
                 by_location: attr(e, "KeyType")?.as_deref() == Some("1"),
                 children: Vec::new(),
                 entries: Vec::new(),
-            }),
+                });
+            }
             _ => {}
         }
         Ok(())
@@ -75,7 +83,7 @@ impl Parser {
                     return;
                 }
                 let path: Vec<&str> =
-                    self.stack.iter().skip(1).map(|f| f.name.as_str()).chain(std::iter::once(frame.name.as_str())).collect();
+                    self.stack.iter().skip(1).map(|f| f.segment.as_str()).chain(std::iter::once(frame.segment.as_str())).collect();
                 let source = format!("{prefix}#{}", path.join("/"));
                 let node = if frame.folder {
                     Node::Folder { name: frame.name, source, children: frame.children }
@@ -156,6 +164,24 @@ mod tests {
     fn key_type_one_uses_locations() {
         let nodes = parse_rekordbox_xml(XML, "/x.xml").unwrap();
         assert_eq!(playlist(&nodes[1]).2, ["/Music/C.flac"]);
+    }
+
+    #[test]
+    fn same_named_siblings_keep_distinct_sources() {
+        let xml = r#"<DJ_PLAYLISTS><COLLECTION/><PLAYLISTS><NODE Type="0" Name="ROOT">
+<NODE Type="0" Name="Set"><NODE Type="1" Name="A" KeyType="0"/></NODE>
+<NODE Type="0" Name="Set"><NODE Type="1" Name="A" KeyType="0"/></NODE>
+</NODE></PLAYLISTS></DJ_PLAYLISTS>"#;
+        let nodes = parse_rekordbox_xml(xml, "/x.xml").unwrap();
+        let sources: Vec<String> = nodes
+            .iter()
+            .flat_map(|n| {
+                let Node::Folder { source, children, .. } = n else { panic!() };
+                let Node::Playlist { source: child, .. } = &children[0] else { panic!() };
+                [source.clone(), child.clone()]
+            })
+            .collect();
+        assert_eq!(sources, ["/x.xml#Set", "/x.xml#Set/A", "/x.xml#Set[2]", "/x.xml#Set[2]/A"]);
     }
 
     #[test]

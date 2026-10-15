@@ -144,3 +144,39 @@ fn malformed_xml_is_an_error() {
     assert!(lib.import_playlists(&[t.p("bad.xml")]).is_err());
     assert!(lib.playlists().unwrap().is_empty());
 }
+
+#[test]
+fn pooled_export_imports_each_track_once() {
+    let t = TempTree::new(&[
+        ("Export/Tracks/Mira Chen/Wind [2024]/1-01. Wind.flac", ""),
+        ("Export/Playlists/Sets/Warmup.m3u8", "#EXTM3U\n../../Tracks/Mira Chen/Wind [2024]/1-01. Wind.flac\n"),
+        ("Export/Playlists/Peak.m3u8", "#EXTM3U\n../Tracks/Mira Chen/Wind [2024]/1-01. Wind.flac\n"),
+    ]);
+    let lib = Library::open_in_memory().unwrap();
+    let report = lib.import_playlists(&[t.p("Export")]).unwrap();
+    assert_eq!((report.added, lib.tracks("", None).unwrap().len()), (1, 1));
+    assert!(report.playlists.iter().all(|s| s.found == 1));
+    let lists = lib.playlists().unwrap();
+    assert_eq!(by_name(&lists, "Sets").parent_id, Some(by_name(&lists, "Export").id));
+    assert!(lists.iter().all(|p| p.name != "Playlists" && p.name != "Tracks"));
+}
+
+#[test]
+fn differently_normalised_spellings_import_once() {
+    let t = TempTree::new(&[("m/Cafe\u{301}.mp3", ""), ("m/list.m3u8", "Caf\u{e9}.mp3\n")]);
+    let lib = Library::open_in_memory().unwrap();
+    let report = lib.import_playlists(&[t.p("m")]).unwrap();
+    assert_eq!(lib.tracks("", None).unwrap().len(), 1);
+    assert_eq!(report.playlists[0].found, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_directory_loops_are_not_followed() {
+    let t = TempTree::new(&[("Root/Sub/a.mp3", "")]);
+    std::os::unix::fs::symlink(t.p("Root"), t.p("Root/Sub/loop")).unwrap();
+    let lib = Library::open_in_memory().unwrap();
+    lib.import_playlists(&[t.p("Root")]).unwrap();
+    assert_eq!(lib.tracks("", None).unwrap().len(), 1);
+    assert_eq!(lib.playlists().unwrap().len(), 2, "Root folder and its Sub playlist only");
+}

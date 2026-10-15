@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -60,12 +61,57 @@ impl Index {
     }
 }
 
-pub(crate) fn on_disk(entry: &str, base_dir: Option<&Path>) -> Option<PathBuf> {
-    let path = entry_path(entry);
-    let direct = PathBuf::from(&path);
-    if direct.is_file() {
-        return Some(direct);
+fn fold(name: &std::ffi::OsStr) -> String {
+    nfc(&name.to_string_lossy()).to_lowercase()
+}
+
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir if out.pop() => {}
+            other => out.push(other),
+        }
     }
-    let joined = base_dir.filter(|_| direct.is_relative())?.join(path.replace('\\', "/"));
-    joined.is_file().then_some(joined)
+    out
+}
+
+#[derive(Default)]
+pub(crate) struct Disk {
+    dirs: HashMap<PathBuf, Vec<OsString>>,
+}
+
+impl Disk {
+    pub(crate) fn locate(&mut self, entry: &str, base_dir: Option<&Path>) -> Option<PathBuf> {
+        let path = entry_path(entry);
+        let direct = PathBuf::from(&path);
+        let candidate = if direct.is_file() {
+            direct
+        } else {
+            let joined = base_dir.filter(|_| direct.is_relative())?.join(path.replace('\\', "/"));
+            if !joined.is_file() {
+                return None;
+            }
+            joined
+        };
+        Some(self.spelling(&normalize(&candidate)))
+    }
+
+    fn spelling(&mut self, path: &Path) -> PathBuf {
+        let mut out = PathBuf::new();
+        for c in path.components() {
+            let Component::Normal(name) = c else {
+                out.push(c);
+                continue;
+            };
+            let names = self.dirs.entry(out.clone()).or_insert_with_key(|dir| {
+                std::fs::read_dir(dir).map(|r| r.filter_map(Result::ok).map(|e| e.file_name()).collect()).unwrap_or_default()
+            });
+            let key = fold(name);
+            let found = names.iter().find(|n| n.as_os_str() == name).or_else(|| names.iter().find(|n| fold(n) == key)).cloned();
+            out.push(found.unwrap_or_else(|| name.to_os_string()));
+        }
+        out
+    }
 }

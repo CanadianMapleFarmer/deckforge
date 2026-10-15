@@ -15,7 +15,7 @@ use serde::Serialize;
 use crate::{import, LibraryError, Result};
 use m3u::is_playlist_file;
 use rekordbox_xml::{parse_rekordbox_xml, MISSING_PREFIX};
-use resolve::{file_label, on_disk, Index};
+use resolve::{file_label, Disk, Index};
 use scan::{m3u_node, scan_dir};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,12 +71,12 @@ fn read_sources(paths: &[PathBuf]) -> Result<(Vec<Node>, Vec<PathBuf>)> {
     Ok((nodes, audio))
 }
 
-fn on_disk_entries(nodes: &[Node], out: &mut Vec<PathBuf>) {
+fn on_disk_entries(nodes: &[Node], disk: &mut Disk, out: &mut Vec<PathBuf>) {
     for node in nodes {
         match node {
-            Node::Folder { children, .. } => on_disk_entries(children, out),
+            Node::Folder { children, .. } => on_disk_entries(children, disk, out),
             Node::Playlist { base_dir, entries, .. } => {
-                out.extend(entries.iter().filter_map(|e| on_disk(e, base_dir.as_deref())));
+                out.extend(entries.iter().filter_map(|e| disk.locate(e, base_dir.as_deref())));
             }
         }
     }
@@ -89,12 +89,12 @@ fn load_index(conn: &Mutex<Connection>) -> Result<Index> {
     Ok(Index::new(rows))
 }
 
-fn resolve_nodes(nodes: &[Node], index: &Index) -> Vec<Resolved> {
+fn resolve_nodes(nodes: &[Node], index: &Index, disk: &mut Disk) -> Vec<Resolved> {
     nodes
         .iter()
         .map(|node| match node {
             Node::Folder { name, source, children } => {
-                Resolved::Folder { name: name.clone(), source: source.clone(), children: resolve_nodes(children, index) }
+                Resolved::Folder { name: name.clone(), source: source.clone(), children: resolve_nodes(children, index, disk) }
             }
             Node::Playlist { name, source, base_dir, entries } => {
                 let (mut tracks, mut missing) = (Vec::new(), Vec::new());
@@ -103,7 +103,8 @@ fn resolve_nodes(nodes: &[Node], index: &Index) -> Vec<Resolved> {
                         missing.push(format!("Track ID {key}"));
                         continue;
                     }
-                    let found = on_disk(entry, base_dir.as_deref())
+                    let found = disk
+                        .locate(entry, base_dir.as_deref())
                         .and_then(|p| index.by_path(&p))
                         .or_else(|| index.by_name(&m3u::entry_path(entry)));
                     match found {
@@ -119,7 +120,8 @@ fn resolve_nodes(nodes: &[Node], index: &Index) -> Vec<Resolved> {
 
 pub(crate) fn import_playlists(conn: &Mutex<Connection>, paths: &[PathBuf]) -> Result<PlaylistImportReport> {
     let (nodes, mut files) = read_sources(paths)?;
-    on_disk_entries(&nodes, &mut files);
+    let mut disk = Disk::default();
+    on_disk_entries(&nodes, &mut disk, &mut files);
     files.sort();
     files.dedup();
     let index = load_index(conn)?;
@@ -127,7 +129,7 @@ pub(crate) fn import_playlists(conn: &Mutex<Connection>, paths: &[PathBuf]) -> R
     files.retain(|f| index.by_path(f).is_none());
     let imported = import::import_paths(conn, &files);
     let index = load_index(conn)?;
-    let playlists = apply::apply(conn, &resolve_nodes(&nodes, &index))?;
+    let playlists = apply::apply(conn, &resolve_nodes(&nodes, &index, &mut disk))?;
     Ok(PlaylistImportReport {
         added: imported.added,
         skipped: imported.skipped + (total - files.len()),

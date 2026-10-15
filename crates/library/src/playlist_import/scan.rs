@@ -28,7 +28,7 @@ pub(crate) fn m3u_node(path: &Path) -> std::io::Result<Node> {
     })
 }
 
-fn node_name(node: &Node) -> &str {
+pub(crate) fn node_name(node: &Node) -> &str {
     match node {
         Node::Folder { name, .. } | Node::Playlist { name, .. } => name,
     }
@@ -69,6 +69,9 @@ fn scan_node(dir: &Path, audio: &mut Vec<PathBuf>) -> Vec<Node> {
             continue;
         }
         if path.is_dir() {
+            if entry.file_type().is_ok_and(|t| t.is_symlink()) {
+                continue;
+            }
             subdirs.push(path);
         } else if is_playlist_file(&path) {
             lists.push(path);
@@ -239,6 +242,13 @@ pub(crate) mod tests {
         let Node::Folder { children: sets, .. } = &children[0] else { panic!() };
         assert_eq!(names(sets), ["Warmup"]);
         assert_eq!(scan.audio.len(), 2, "the Tracks pool still reaches the collection");
+    }
+
+    #[test]
+    fn pooled_export_with_only_playlist_files_unwraps_playlists() {
+        let t = TempTree::new(&[("E/Tracks/a.flac", ""), ("E/Playlists/B.m3u8", "../Tracks/a.flac\n"), ("E/Playlists/A.m3u8", "../Tracks/a.flac\n")]);
+        let Node::Folder { children, .. } = &scan_dir(&t.p("E")).nodes[0] else { panic!() };
+        assert_eq!(names(children), ["A", "B"]);
     }
 
     #[test]
