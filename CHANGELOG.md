@@ -4,6 +4,8 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-16
+
 ### Added
 - Playlist folders in the sidebar, with collapse state remembered between launches.
 - Import folders as playlists: subfolders become playlist folders, and a `.m3u8` beside the tracks sets the playlist's name and order.
@@ -25,5 +27,6 @@ First public release.
 - Full Pioneer DJ DDJ-FLX4 mapping with LED feedback.
 - macOS, Windows and Linux builds.
 
-[Unreleased]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/CanadianMapleFarmer/deckforge/releases/tag/v0.1.0
