@@ -932,10 +932,12 @@ dependencies = [
  "lofty",
  "log",
  "parking_lot",
+ "quick-xml",
  "rusqlite",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "unicode-normalization",
  "walkdir",
 ]
 

@@ -4,6 +4,15 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+- Playlist folders in the sidebar, with collapse state remembered between launches.
+- Import folders as playlists: subfolders become playlist folders, and a `.m3u8` beside the tracks sets the playlist's name and order.
+- Import M3U/M3U8 files and rekordbox collection XML exports, including pooled `Tracks/` + `Playlists/` exports such as Music Ripper's.
+- Re-importing the same folder or file updates its playlists in place; tracks that can't be found are listed after the import.
+
+### Changed
+- The FLX4 browse highlight is bolder, so the selected row stays visible on a dim screen.
+
 ## [0.1.0] - 2026-10-15
 
 First public release.

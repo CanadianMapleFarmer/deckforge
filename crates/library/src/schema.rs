@@ -78,6 +78,12 @@ ALTER TABLE phrases ADD COLUMN fill_start_secs REAL;
 "#, r#"
 ALTER TABLE analysis ADD COLUMN loudness_lufs REAL;
 ALTER TABLE analysis ADD COLUMN sample_peak REAL;
+"#, r#"
+ALTER TABLE playlists ADD COLUMN parent_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE;
+ALTER TABLE playlists ADD COLUMN is_folder INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE playlists ADD COLUMN source TEXT;
+ALTER TABLE playlists ADD COLUMN renamed INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX playlists_source ON playlists(source);
 "#];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

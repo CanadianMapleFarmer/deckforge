@@ -198,6 +198,7 @@ pub fn run() {
             commands::library_tracks,
             commands::library_track,
             commands::library_import,
+            commands::library_import_playlists,
             commands::playlists_list,
             commands::playlist_create,
             commands::playlist_rename,

@@ -1,5 +1,5 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import type { AnalysisProgress, ControllerAppAction, DeckIndex, Phrase, Playlist, TrackSummary } from '$lib/api';
+import type { AnalysisProgress, ControllerAppAction, DeckIndex, Phrase, Playlist, PlaylistImportReport, TrackSummary } from '$lib/api';
 import { EVENTS } from '$lib/api';
 import * as be from '$lib/api/backend';
 import { errorMessage } from '$lib/util/format';
@@ -9,6 +9,7 @@ import { toast } from './toast.svelte';
 import { ui } from './ui.svelte';
 import { waveforms } from '$lib/waveform/store';
 import { effectiveKey } from '$lib/util/camelot';
+import { ancestors, visibleRows } from '$lib/util/playlistTree';
 
 export type FocusPane = 'sidebar' | 'table';
 
@@ -41,6 +42,7 @@ class Library {
   focus = $state<FocusPane>('table');
   loading = $state(false);
   importing = $state(false);
+  importReport = $state<PlaylistImportReport | null>(null);
   queued = $state(0);
   analysing = $state<number | null>(null);
   confirm = $state<ConfirmState | null>(null);
@@ -49,6 +51,8 @@ class Library {
   deckArt = $state.raw<[string | null, string | null]>([null, null]);
   deckPhrases = $state.raw<[PhraseSet | null, PhraseSet | null]>([null, null]);
   scrollToCursor = $state(0);
+
+  rows = $derived(visibleRows(this.playlists, ui.collapsedFolders));
 
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
   private deckTokens: [number, number] = [-1, -1];
@@ -186,7 +190,10 @@ class Library {
   }
 
   moveSidebar(delta: number) {
-    const ids: (number | null | 'spotify')[] = [null, ...this.playlists.map((p) => p.id), 'spotify'];
+    const hidden = this.playlistId === null ? [] : ancestors(this.playlists, this.playlistId).filter((id) => ui.collapsedFolders.has(id));
+    for (const id of hidden) ui.toggleFolder(id, true);
+    const lists = this.rows.filter((r) => !r.playlist.isFolder).map((r) => r.playlist.id);
+    const ids: (number | null | 'spotify')[] = [null, ...lists, 'spotify'];
     const cur = ids.indexOf(ui.browserView === 'spotify' ? 'spotify' : this.playlistId);
     const next = Math.min(ids.length - 1, Math.max(0, cur + delta));
     if (next === cur) return;
@@ -320,15 +327,35 @@ class Library {
     }
   }
 
-  async importFolders() {
+  async importFolders(asPlaylists = false) {
+    const title = asPlaylists ? 'Import folders as playlists' : 'Add music folders to the collection';
+    const picked = await open({ directory: true, multiple: true, title }).catch(() => null);
+    const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+    if (paths.length) await this.runImport(paths, asPlaylists);
+  }
+
+  async importPlaylistFile() {
+    const picked = await open({
+      multiple: true,
+      title: 'Import playlist files',
+      filters: [{ name: 'Playlists', extensions: ['m3u', 'm3u8', 'xml'] }],
+    }).catch(() => null);
+    const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+    if (paths.length) await this.runImport(paths, true);
+  }
+
+  private async runImport(paths: string[], asPlaylists: boolean) {
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
     try {
-      const picked = await open({ directory: true, multiple: true, title: 'Import music folders' });
-      if (!picked) return;
-      const paths = Array.isArray(picked) ? picked : [picked];
-      if (!paths.length) return;
       this.importing = true;
-      const r = await be.backend.importPaths(paths);
-      toast.ok(`Imported ${r.added} track${r.added === 1 ? '' : 's'}${r.skipped ? `, ${r.skipped} already in library` : ''}${r.failed ? `, ${r.failed} failed` : ''}`);
+      if (asPlaylists) {
+        const r = await be.backend.importPlaylists(paths);
+        if (r.playlists.some((p) => p.missing.length)) this.importReport = r;
+        else toast.ok(`Imported ${plural(r.playlists.length, 'playlist')} · ${plural(r.added, 'new track')}${r.failed ? ` · ${r.failed} failed` : ''}`);
+      } else {
+        const r = await be.backend.importPaths(paths);
+        toast.ok(`Imported ${plural(r.added, 'track')}${r.skipped ? `, ${r.skipped} already in library` : ''}${r.failed ? `, ${r.failed} failed` : ''}`);
+      }
       await this.refreshTracks();
       await this.refreshPlaylists();
     } catch (e) {
@@ -338,9 +365,9 @@ class Library {
     }
   }
 
-  async createPlaylist(name: string) {
+  async createPlaylist(name: string, parentId: number | null = null, isFolder = false) {
     try {
-      const p = await be.backend.createPlaylist(name);
+      const p = await be.backend.createPlaylist(name, parentId, isFolder);
       await this.refreshPlaylists();
       return p;
     } catch (e) {
@@ -356,8 +383,8 @@ class Library {
 
   async deletePlaylist(id: number) {
     await be.backend.deletePlaylist(id).catch((e) => toast.error(errorMessage(e)));
-    if (this.playlistId === id) this.selectPlaylist(null);
     await this.refreshPlaylists();
+    if (this.playlistId !== null && !this.playlists.some((p) => p.id === this.playlistId)) this.selectPlaylist(null);
   }
 
   async addToPlaylist(playlistId: number, trackIds: number[]) {

@@ -390,12 +390,29 @@ export interface Playlist {
   id: number;
   name: string;
   trackCount: number;
+  parentId: number | null;
+  isFolder: boolean;
 }
 
 export interface ImportResult {
   added: number;
   skipped: number;
   failed: number;
+}
+
+export interface PlaylistImportSummary {
+  id: number;
+  name: string;
+  found: number;
+  total: number;
+  missing: string[];
+}
+
+export interface PlaylistImportReport {
+  added: number;
+  skipped: number;
+  failed: number;
+  playlists: PlaylistImportSummary[];
 }
 
 export interface LoadResult {

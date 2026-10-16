@@ -368,9 +368,16 @@ fn library_types_match_types_ts() {
     lib.import_paths(std::slice::from_ref(&dir));
     let track = &lib.tracks("", None).unwrap()[0];
     check("TrackSummary", &serde_json::to_value(track).unwrap());
-    let pl = lib.create_playlist("x").unwrap();
+    let pl = lib.create_playlist("x", None, false).unwrap();
     check("Playlist", &serde_json::to_value(pl).unwrap());
     check("ImportResult", &serde_json::to_value(deckforge_library::ImportResult::default()).unwrap());
+    let report = deckforge_library::PlaylistImportReport {
+        playlists: vec![deckforge_library::PlaylistImportSummary { id: 1, name: "x".into(), found: 1, total: 2, missing: vec!["y.mp3".into()] }],
+        ..Default::default()
+    };
+    let v = serde_json::to_value(report).unwrap();
+    check("PlaylistImportReport", &v);
+    check("PlaylistImportSummary", &v["playlists"][0]);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -398,7 +405,7 @@ fn spotify_types_match_types_ts() {
         match_score: None,
     };
     check("SpotifyTrack", &serde_json::to_value(track).unwrap());
-    let playlist = deckforge_library::Library::open_in_memory().unwrap().create_playlist("x").unwrap();
+    let playlist = deckforge_library::Library::open_in_memory().unwrap().create_playlist("x", None, false).unwrap();
     let result = deckforge_desktop_lib::spotify::SpotifyImportResult { playlist, matched: 1, unmatched: 0 };
     let v = serde_json::to_value(result).unwrap();
     check("SpotifyImportResult", &v);

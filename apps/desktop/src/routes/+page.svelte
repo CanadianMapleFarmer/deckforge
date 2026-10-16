@@ -16,6 +16,7 @@
   import SettingsSheet from '$lib/components/SettingsSheet.svelte';
   import HelpOverlay from '$lib/components/HelpOverlay.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import ImportReport from '$lib/components/ImportReport.svelte';
   import Toasts from '$lib/components/Toasts.svelte';
   import DragGhost from '$lib/components/DragGhost.svelte';
   import { runSelfTest } from '$lib/selftest';
@@ -84,6 +85,7 @@
 <SettingsSheet />
 <HelpOverlay />
 <ConfirmDialog />
+<ImportReport />
 <DragGhost />
 <Toasts />
 

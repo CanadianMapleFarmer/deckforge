@@ -9,7 +9,7 @@ use deckforge_engine::{
     list_output_devices, ActiveOutput, Command, EngineSnapshot, JogMode, LoadRequest, MixerParam, OutputDeviceInfo,
     OutputRequest, OutputStatus, Routing, SecondaryOutputRequest, JOG_TICKS_PER_REV,
 };
-use deckforge_library::{ImportResult, Playlist, StoredCues, TrackSummary};
+use deckforge_library::{ImportResult, Playlist, PlaylistImportReport, StoredCues, TrackSummary};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, State};
@@ -329,13 +329,35 @@ pub async fn library_import(app: AppHandle, state: State<'_, AppState>, paths: V
 }
 
 #[tauri::command]
+pub async fn library_import_playlists(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> CmdResult<PlaylistImportReport> {
+    let library = state.library.clone();
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    let report = tauri::async_runtime::spawn_blocking(move || library.import_playlists(&paths)).await.map_err(err)?.map_err(err)?;
+    for id in state.library.pending_analysis().map_err(err)? {
+        state.analysis.enqueue(id);
+    }
+    let _ = app.emit("library://changed", ());
+    Ok(report)
+}
+
+#[tauri::command]
 pub fn playlists_list(state: State<'_, AppState>) -> CmdResult<Vec<Playlist>> {
     state.library.playlists().map_err(err)
 }
 
 #[tauri::command]
-pub fn playlist_create(app: AppHandle, state: State<'_, AppState>, name: String) -> CmdResult<Playlist> {
-    let p = state.library.create_playlist(&name).map_err(err)?;
+pub fn playlist_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    parent_id: Option<i64>,
+    is_folder: Option<bool>,
+) -> CmdResult<Playlist> {
+    let p = state.library.create_playlist(&name, parent_id, is_folder.unwrap_or(false)).map_err(err)?;
     let _ = app.emit("library://changed", ());
     Ok(p)
 }

@@ -27,6 +27,7 @@ class UiStore {
   settingsTab = $state<'audio' | 'controller'>('audio');
   helpOpen = $state(false);
   browserView = $state<'library' | 'spotify'>('library');
+  collapsedFolders = $state.raw<ReadonlySet<number>>(new Set(load<number[]>('df.collapsedFolders', [])));
 
   compact = $state(false);
 
@@ -52,6 +53,13 @@ class UiStore {
   setLibraryHeight(h: number) {
     this.libraryHeight = h;
     save('df.libraryHeight', h);
+  }
+  toggleFolder(id: number, open?: boolean) {
+    const next = new Set(this.collapsedFolders);
+    if (open ?? next.has(id)) next.delete(id);
+    else next.add(id);
+    this.collapsedFolders = next;
+    save('df.collapsedFolders', [...next]);
   }
   setSidebarWidth(w: number) {
     this.sidebarWidth = w;

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   ActiveOutput, AnalysisProgress, ControllerAppAction, ControllerStatus, DeckIndex, EngineSnapshot,
-  ImportResult, LoadResult, MidiLogEntry, OutputDeviceInfo, OutputRequest, OutputStatus, Playlist,
+  ImportResult, LoadResult, PlaylistImportReport, PlaylistImportSummary, MidiLogEntry, OutputDeviceInfo, OutputRequest, OutputStatus, Playlist,
   Phrase, Routing, SecondaryOutputRequest, SecondaryOutputStatus, SpotifyImportResult, SpotifyPlaylist, SpotifyStatus, SpotifyTrack, TrackSummary, UiCommand,
   Waveform,
 } from './types';
@@ -31,8 +31,10 @@ export const api = {
     invoke<TrackSummary[]>('library_tracks', { query, playlistId }),
   track: (id: number) => invoke<TrackSummary>('library_track', { id }),
   importPaths: (paths: string[]) => invoke<ImportResult>('library_import', { paths }),
+  importPlaylists: (paths: string[]) => invoke<PlaylistImportReport>('library_import_playlists', { paths }),
   playlists: () => invoke<Playlist[]>('playlists_list'),
-  createPlaylist: (name: string) => invoke<Playlist>('playlist_create', { name }),
+  createPlaylist: (name: string, parentId: number | null = null, isFolder = false) =>
+    invoke<Playlist>('playlist_create', { name, parentId, isFolder }),
   renamePlaylist: (id: number, name: string) => invoke<void>('playlist_rename', { id, name }),
   deletePlaylist: (id: number) => invoke<void>('playlist_delete', { id }),
   addToPlaylist: (id: number, trackIds: number[]) => invoke<void>('playlist_add_tracks', { id, trackIds }),
@@ -98,6 +100,6 @@ export function on<T>(event: string, handler: (payload: T) => void): Promise<Unl
 
 export type {
   ActiveOutput, AnalysisProgress, ControllerAppAction, ControllerStatus, EngineSnapshot, ImportResult,
-  LoadResult, MidiLogEntry, OutputDeviceInfo, OutputStatus, Playlist, SecondaryOutputRequest,
+  LoadResult, MidiLogEntry, OutputDeviceInfo, OutputStatus, Playlist, PlaylistImportReport, PlaylistImportSummary, SecondaryOutputRequest,
   SecondaryOutputStatus, TrackSummary,
 };
