@@ -195,3 +195,45 @@ fn a_loop_shorter_than_the_audio_block_keeps_its_length() {
     let p = h.snapshot().decks[0].position_secs;
     assert!(p < 0.5 / 16.0 + 0.003, "position {p} stays inside the loop");
 }
+
+#[test]
+fn the_snapshot_reports_the_speed_the_deck_really_plays_at() {
+    for key_lock in [false, true] {
+        let (h, mut rt) = rig(track(20.0, sine), None, [None; HOT_CUE_SLOTS], 1.04);
+        h.send(Command::SetKeyLock { deck: 0, enabled: key_lock });
+        run(&mut rt, 0.5);
+        let s = h.snapshot().decks[0];
+        assert!((s.play_rate - 1.04).abs() < 1e-6, "steady: {}", s.play_rate);
+
+        h.send(Command::Jog { deck: 0, ticks: 60, mode: JogMode::Bend });
+        run(&mut rt, 0.01);
+        let nudged = h.snapshot().decks[0];
+        assert!(nudged.play_rate > 1.04 * 1.05, "key lock {key_lock}: nudge shows {}", nudged.play_rate);
+        let before = nudged.position_secs;
+        run(&mut rt, 0.01);
+        let after = h.snapshot().decks[0];
+        let measured = (after.position_secs - before) / (BLOCK as f64 / SR as f64);
+        assert!((measured - nudged.play_rate).abs() < 0.15, "key lock {key_lock}: moved at {measured}, reported {}", nudged.play_rate);
+
+        h.send(Command::JogTouch { deck: 0, touched: true });
+        for _ in 0..10 {
+            h.send(Command::Jog { deck: 0, ticks: -20, mode: JogMode::Scratch });
+            run(&mut rt, 0.011);
+        }
+        let scratching = h.snapshot().decks[0];
+        assert!(scratching.play_rate < 0.0, "backward scratch shows {}", scratching.play_rate);
+        h.send(Command::JogTouch { deck: 0, touched: false });
+        h.send(Command::Pause { deck: 0 });
+        run(&mut rt, 0.2);
+        assert_eq!(h.snapshot().decks[0].play_rate, 0.0, "paused");
+    }
+}
+
+#[test]
+fn the_snapshot_reports_how_late_the_output_is_heard() {
+    let (h, mut rt) = rig(track(5.0, sine), None, [None; HOT_CUE_SLOTS], 1.0);
+    rt.set_device_latency(0.012);
+    run(&mut rt, 0.01);
+    let latency = h.snapshot().output_latency_secs;
+    assert!((latency - (0.012 + BLOCK as f64 / SR as f64)).abs() < 1e-6, "{latency}");
+}

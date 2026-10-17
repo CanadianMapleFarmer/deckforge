@@ -84,6 +84,8 @@ pub struct RtEngine {
     tap: Option<SecondaryTap>,
     pending_loads: [Option<Box<LoadRequest>>; DECK_COUNT],
     held: [VecDeque<Command>; DECK_COUNT],
+    device_latency: f64,
+    output_latency: f64,
 }
 
 /// Control half: cheap to share between UI, MIDI and background threads.
@@ -114,6 +116,8 @@ pub fn create_engine(sample_rate: u32) -> (EngineHandle, RtEngine) {
         tap: None,
         pending_loads: [None, None],
         held: std::array::from_fn(|_| VecDeque::with_capacity(HELD_COMMANDS)),
+        device_latency: 0.0,
+        output_latency: 0.0,
     };
     let handle = EngineHandle {
         commands: Mutex::new(cmd_tx),
@@ -165,6 +169,13 @@ impl RtEngine {
         }
         self.output_fade = Smoothed::new(0.0, sr, STARTUP_FADE_MS);
         self.routing = routing;
+    }
+
+    /// Delay between a callback and its first sample reaching the speakers, as the device reports it.
+    pub fn set_device_latency(&mut self, secs: f64) {
+        if secs.is_finite() {
+            self.device_latency = secs.clamp(0.0, 1.0);
+        }
     }
 
     /// Installs or removes the secondary-output tap; returns the previous tap so the caller drops it off the audio thread.
@@ -528,6 +539,7 @@ impl RtEngine {
             }
         }
         self.frames_processed += total as u64;
+        self.output_latency = self.device_latency + total as f64 / self.sample_rate as f64;
         if let Some(tap) = &mut self.tap {
             tap.end_block(total, self.sample_rate as u32);
         }
@@ -595,6 +607,7 @@ impl RtEngine {
         snap.master_deck = master.map(|m| m as u8);
         snap.sample_rate = self.sample_rate as u32;
         snap.frames_processed = self.frames_processed;
+        snap.output_latency_secs = self.output_latency;
         snap.callback_load = self.load;
         snap.cue_available = self.routing.cue_available();
         snap.beat_fx = self.mixer.beat_fx_snapshot();

@@ -67,15 +67,15 @@ export class DeckClock {
       this.token = 0;
       return;
     }
-    const moving = d.playing || d.previewing;
-    const age = clamp((now - engine.snapAt) / 1000, 0, 0.12);
-    const target = clamp(d.positionSecs + (moving ? age * d.tempoRatio : 0), 0, d.durationSecs);
+    const moving = d.playing || d.previewing || d.jogTouched;
+    const age = clamp((now - engine.snapAt) / 1000 - engine.latest.outputLatencySecs, -0.25, 0.12);
+    const target = clamp(d.positionSecs + (moving ? age * d.playRate : 0), 0, d.durationSecs);
     if (d.trackToken !== this.token || !moving || Math.abs(target - this.pos) > 0.2) {
       this.pos = target;
       this.token = d.trackToken;
       return;
     }
-    this.pos += dt * d.tempoRatio;
+    this.pos += dt * d.playRate;
     this.pos += (target - this.pos) * 0.25;
   }
 }

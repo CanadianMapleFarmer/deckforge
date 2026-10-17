@@ -791,6 +791,16 @@ impl Deck {
         true
     }
 
+    fn current_rate(&self) -> f64 {
+        if self.jog_touched {
+            self.scratch_rate / (self.src_rate() / self.out_rate)
+        } else if self.playing {
+            self.play_rate()
+        } else {
+            0.0
+        }
+    }
+
     pub fn snapshot(&self, is_master: bool) -> DeckSnapshot {
         let grid = self.grid;
         DeckSnapshot {
@@ -800,6 +810,7 @@ impl Deck {
             position_secs: self.audible_secs(),
             duration_secs: self.to_secs(self.frames()),
             tempo_ratio: self.tempo_ratio(),
+            play_rate: self.current_rate(),
             fader_tempo_ratio: self.fader_ratio,
             tempo_range: self.tempo_range,
             key_lock: self.key_lock,

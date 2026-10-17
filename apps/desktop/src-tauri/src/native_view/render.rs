@@ -123,11 +123,11 @@ impl RenderThread {
             if let Some(ts) = work.snapshot.filter(|_| work.snapshot_rev != snapshot_rev) {
                 snapshot_rev = work.snapshot_rev;
                 for (clock, d) in clocks.iter_mut().zip(&ts.snapshot.decks) {
-                    clock.push(DeckSample { pos: d.position_secs, rate: d.tempo_ratio, moving: d.playing || d.previewing, token: d.track_token, at: ts.at });
+                    clock.push(DeckSample { pos: d.position_secs, rate: d.play_rate, moving: d.playing || d.previewing || d.jog_touched, token: d.track_token, at: ts.at });
                 }
             }
             let snapshot = work.snapshot.map(|t| t.snapshot).unwrap_or_default();
-            let display_time = now + refresh_secs - work.latency_secs;
+            let display_time = now + refresh_secs - work.latency_secs - snapshot.output_latency_secs;
             let decks = [
                 deck_view(&snapshot.decks[0], clocks[0].position(display_time), snapshot.master_deck == Some(0u8)),
                 deck_view(&snapshot.decks[1], clocks[1].position(display_time), snapshot.master_deck == Some(1u8)),

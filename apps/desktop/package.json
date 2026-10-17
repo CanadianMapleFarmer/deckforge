@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --test --experimental-strip-types src/lib/util/camelot.test.ts src/lib/waveform/bars.test.ts src/lib/waveform/phraseNav.test.ts src/lib/util/around.test.ts src/lib/util/playlistTree.test.ts",
+    "test": "node --test --experimental-strip-types src/lib/util/camelot.test.ts src/lib/waveform/bars.test.ts src/lib/waveform/phraseNav.test.ts src/lib/util/around.test.ts src/lib/util/playlistTree.test.ts src/lib/waveform/scale.test.ts",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri"
   },

@@ -1,3 +1,4 @@
+import { MIN_DRAWN_TEMPO } from './scale';
 import { engine } from '$lib/state/engine.svelte';
 import { library } from '$lib/state/library.svelte';
 import { clocks } from '$lib/ticker';
@@ -204,7 +205,7 @@ export class ScrollerRenderer {
     const pos = clocks[this.deck].pos;
     const ppsDev = ppsCss * dpr;
     const cx = Math.floor(W / 2);
-    const scale = 1 / Math.max(0.2, d.tempoRatio);
+    const scale = 1 / Math.max(MIN_DRAWN_TEMPO, d.tempoRatio);
     const wf = waveforms.get(d.trackToken);
     if (!wf) {
       placeholder(ctx, W, H, dpr, 'Analysing…', true, now);
@@ -235,7 +236,7 @@ export class ScrollerRenderer {
     ctx.clearRect(0, 0, W, H);
     if (!d.loaded) return;
     const pos = clocks[this.deck].pos;
-    const ratio = Math.max(0.2, d.tempoRatio);
+    const ratio = Math.max(MIN_DRAWN_TEMPO, d.tempoRatio);
     const pps = (ppsCss * dpr) / ratio;
     const cx = Math.floor(W / 2);
     const xOf = (t: number) => cx + (t - pos) * pps;

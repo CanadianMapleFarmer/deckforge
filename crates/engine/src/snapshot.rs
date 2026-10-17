@@ -13,6 +13,9 @@ pub struct DeckSnapshot {
     pub position_secs: f64,
     pub duration_secs: f64,
     pub tempo_ratio: f64,
+    /// Track seconds per second actually playing now: tempo with jog nudge and sync correction, scratch speed while
+    /// the jog top is held (negative backwards), 0 when stopped.
+    pub play_rate: f64,
     pub fader_tempo_ratio: f64,
     pub tempo_range: TempoRange,
     pub key_lock: bool,
@@ -151,6 +154,8 @@ pub struct EngineSnapshot {
     pub master_deck: Option<u8>,
     pub sample_rate: u32,
     pub frames_processed: u64,
+    /// Seconds from the end of the last rendered block until it is heard: device latency plus that block.
+    pub output_latency_secs: f64,
     pub callback_load: f32,
     pub cue_available: bool,
     pub beat_fx: BeatFxSnapshot,

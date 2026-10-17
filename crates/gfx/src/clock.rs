@@ -29,6 +29,7 @@ pub struct DeckClock {
     shown: f64,
     last_now: Option<f64>,
     drag: Drag,
+    shifted: bool,
 }
 
 impl Default for DeckClock {
@@ -44,10 +45,12 @@ impl DeckClock {
             shown: 0.0,
             last_now: None,
             drag: Drag::None,
+            shifted: false,
         }
     }
 
     pub fn push(&mut self, sample: DeckSample) {
+        self.shifted = self.sample.is_some_and(|s| s.token == sample.token && s.pos != sample.pos && !sample.moving);
         self.sample = Some(sample);
     }
 
@@ -69,7 +72,7 @@ impl DeckClock {
     }
 
     pub fn is_moving(&self) -> bool {
-        matches!(self.drag, Drag::Active { .. }) || self.sample.is_some_and(|s| s.moving)
+        matches!(self.drag, Drag::Active { .. }) || self.shifted || self.sample.is_some_and(|s| s.moving)
     }
 
     fn target(&self, now: f64) -> Option<f64> {
@@ -136,18 +139,34 @@ impl DeckClock {
 pub struct AudioSync {
     offset: Option<f64>,
     last_frames: u64,
+    late: u32,
+    late_min: f64,
 }
 
 const OFFSET_RISE: f64 = 1e-4;
+/// The audio clock fell this far behind the host clock (a dropout or stalled callback) ...
+const LATE_SECS: f64 = 0.01;
+/// ... for this many polls in a row, so the offset re-locks instead of creeping up.
+const LATE_POLLS: u32 = 8;
 
 impl AudioSync {
     /// Returns the estimated host time at which the snapshot with `frames` processed was produced.
     pub fn observe(&mut self, host_secs: f64, frames: u64, sample_rate: u32) -> f64 {
         let audio_secs = frames as f64 / f64::from(sample_rate.max(1));
         let raw = host_secs - audio_secs;
+        if self.offset.is_some_and(|o| raw - o > LATE_SECS) {
+            self.late_min = if self.late == 0 { raw } else { self.late_min.min(raw) };
+            self.late += 1;
+        } else {
+            self.late = 0;
+        }
         let offset = match self.offset {
             None => raw,
             Some(_) if frames < self.last_frames => raw,
+            Some(_) if self.late >= LATE_POLLS => {
+                self.late = 0;
+                self.late_min
+            }
             Some(o) if raw < o => raw,
             Some(o) => o + (raw - o) * OFFSET_RISE,
         };
@@ -171,6 +190,40 @@ mod tests {
             token: 1,
             at,
         }
+    }
+
+    #[test]
+    fn the_audio_clock_recovers_quickly_after_a_dropout() {
+        let mut sync = AudioSync::default();
+        let rate = 48_000u32;
+        let mut frames = 0u64;
+        let mut host = 0.0;
+        for _ in 0..200 {
+            host += 0.005;
+            frames += 240;
+            sync.observe(host, frames, rate);
+        }
+        host += 0.4;
+        let mut at = 0.0;
+        for _ in 0..40 {
+            host += 0.005;
+            frames += 240;
+            at = sync.observe(host, frames, rate);
+        }
+        assert!((host - at).abs() < 0.02, "still {:.3} s behind after a dropout", host - at);
+    }
+
+    #[test]
+    fn a_paused_deck_being_searched_keeps_redrawing() {
+        let mut clock = DeckClock::new();
+        let still = |pos: f64, at: f64| DeckSample { pos, rate: 0.0, moving: false, token: 1, at };
+        clock.push(still(10.0, 0.0));
+        clock.push(still(10.0, 0.016));
+        assert!(!clock.is_moving());
+        clock.push(still(10.4, 0.032));
+        assert!(clock.is_moving(), "position changed while paused");
+        clock.push(still(10.4, 0.048));
+        assert!(!clock.is_moving(), "search stopped");
     }
 
     #[test]
