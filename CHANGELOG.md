@@ -4,6 +4,8 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
 ### Changed
 - Key lock now uses Signalsmith Stretch. The treble stays intact and the sound no longer warbles when the tempo moves.
 - The jog wheel nudge is about four times stronger: a full turn moves the track about 0.13 s.
@@ -11,6 +13,9 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 ### Fixed
 - Key lock no longer clicks or repeats audio when the jog wheel nudges a deck at zero tempo, or when you start or stop scratching.
 - Key-locked loops keep their exact length, and cues and hot cues are heard the moment they fire.
+- Spamming CUE, firing hot cues, scratching or nudging one deck can no longer click the master output, and loading a track onto a playing deck fades it out instead of cutting it off.
+- The waveform now follows the deck's real speed while nudging and scratching, shows what you hear rather than running ahead by the output latency, and stays under the cursor when dragged at any tempo.
+- Pulling the tempo to −100 % with key lock on goes silent instead of droning.
 
 ## [0.2.0] - 2026-10-16
 
@@ -35,6 +40,7 @@ First public release.
 - Full Pioneer DJ DDJ-FLX4 mapping with LED feedback.
 - macOS, Windows and Linux builds.
 
-[Unreleased]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/CanadianMapleFarmer/deckforge/releases/tag/v0.1.0

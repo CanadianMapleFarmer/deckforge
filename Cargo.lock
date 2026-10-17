@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-analysis"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "deckforge-common",
  "hound",
@@ -819,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -836,14 +836,14 @@ dependencies = [
 
 [[package]]
 name = "deckforge-common"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "deckforge-controller"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "crossbeam-channel",
  "deckforge-common",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-dsp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "deckforge-common",
@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-gfx"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "log",
@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-library"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "deckforge-analysis",
  "deckforge-common",
@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "deckforge-spotify"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
