@@ -95,3 +95,19 @@ pub enum Command {
     SmartCfx(bool),
     SmartCfxPreset(SmartCfxPreset),
 }
+
+impl Command {
+    /// The deck whose playback state this command changes, if any.
+    pub fn deck(&self) -> Option<usize> {
+        use Command::*;
+        match self {
+            Load { deck, .. } | Eject { deck } | Play { deck } | Pause { deck } | TogglePlay { deck } | CueDown { deck } | CueUp { deck }
+            | SeekSecs { deck, .. } | SetTempo { deck, .. } | SetPitchFader { deck, .. } | SetTempoRange { deck, .. }
+            | SetKeyLock { deck, .. } | SetVinylMode { deck, .. } | JogTouch { deck, .. } | Jog { deck, .. } | HotCue { deck, .. }
+            | HotCueDelete { deck, .. } | HotCueColor { deck, .. } | LoopIn { deck } | LoopOut { deck } | ReloopExit { deck }
+            | BeatLoop { deck, .. } | LoopScale { deck, .. } | BeatJump { deck, .. } | SetBeatgrid { deck, .. } | Sync { deck, .. }
+            | SetPhraseStarts { deck, .. } => Some(*deck),
+            _ => None,
+        }
+    }
+}

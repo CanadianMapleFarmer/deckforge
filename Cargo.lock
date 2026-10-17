@@ -888,6 +888,7 @@ dependencies = [
 name = "deckforge-dsp"
 version = "0.2.0"
 dependencies = [
+ "cc",
  "deckforge-common",
 ]
 

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { ScrollerRenderer } from '$lib/waveform/draw';
   import { canvasPreview, scrubGesture } from '$lib/waveform/seek';
+  import { trackSecsPerPx } from '$lib/waveform/scale';
+  import { engine } from '$lib/state/engine.svelte';
   import NativeSurface from '$lib/native/NativeSurface.svelte';
   import { native, nativeDragPreview } from '$lib/native/native.svelte';
   import { ui, ZOOM_LEVELS } from '$lib/state/ui.svelte';
@@ -12,7 +14,7 @@
   // svelte-ignore state_referenced_locally
   const renderer = new ScrollerRenderer(deck);
   // svelte-ignore state_referenced_locally
-  const gesture = scrubGesture(deck, () => 1 / ZOOM_LEVELS[ui.zoomIndex], (d, secs) =>
+  const gesture = scrubGesture(deck, () => trackSecsPerPx(ZOOM_LEVELS[ui.zoomIndex], engine.latest.decks[deck].tempoRatio), (d, secs) =>
     (native.available ? nativeDragPreview : canvasPreview)(d, secs),
   );
   let wheelAcc = 0;

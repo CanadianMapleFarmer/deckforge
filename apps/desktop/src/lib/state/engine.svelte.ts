@@ -5,7 +5,7 @@ import { toast } from './toast.svelte';
 
 function emptyDeck(): EngineSnapshot['decks'][0] {
   return {
-    loaded: false, trackToken: 0, playing: false, positionSecs: 0, durationSecs: 0, tempoRatio: 1, faderTempoRatio: 1,
+    loaded: false, trackToken: 0, playing: false, positionSecs: 0, durationSecs: 0, tempoRatio: 1, playRate: 0, faderTempoRatio: 1,
     tempoRange: 'Ten', keyLock: false, vinylMode: false, hasGrid: false, gridBpm: 0, firstBeatSecs: 0, bpm: 0, beatPhase: 0,
     cueSecs: 0, hotCues: Array(8).fill(null), loopInSecs: null, loopOutSecs: null, loopActive: false, syncEnabled: false,
     isMaster: false, jogTouched: false, previewing: false, atEnd: false,
@@ -20,7 +20,7 @@ export const EMPTY_SNAPSHOT: EngineSnapshot = {
     crossfader: 0.5, curve: 'equal-power', eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.5, meterL: 0, meterR: 0,
     cueMeterL: 0, cueMeterR: 0, clipping: false, limiting: false, hardwarePhones: false,
   },
-  quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, callbackLoad: 0, cueAvailable: true,
+  quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, outputLatencySecs: 0, callbackLoad: 0, cueAvailable: true,
   beatFx: {
     kind: 'echo', target: 'master', beats: 1, percent: 50, level: 0.5, enabled: false, bpm: 120, bands: { low: false, mid: true, high: true },
     params: [42, 50, 0, 0, 0, 0, 0, 0], held: false, ascendProgress: null, ascendBars: null, ascendLandingBar: null,

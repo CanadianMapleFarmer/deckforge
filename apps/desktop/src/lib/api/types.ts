@@ -18,6 +18,7 @@ export interface DeckSnapshot {
   positionSecs: number;
   durationSecs: number;
   tempoRatio: number; // effective (includes sync)
+  playRate: number; // track seconds per second right now: tempo with nudge and sync correction, scratch speed while the jog top is held, 0 when stopped
   faderTempoRatio: number;
   tempoRange: TempoRange;
   keyLock: boolean;
@@ -75,6 +76,7 @@ export interface EngineSnapshot {
   masterDeck: number | null;
   sampleRate: number;
   framesProcessed: number;
+  outputLatencySecs: number; // from the end of the last rendered block until it is heard
   callbackLoad: number; // 0..1 fraction of audio callback budget used (peak, decaying)
   cueAvailable: boolean; // false when output device has no separate headphone pair
   beatFx: BeatFxSnapshot;

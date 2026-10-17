@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use deckforge_common::{clamp_beat_fx_percent, snap_beat_fx_beats_for, FxTarget, SharedTrack, DECK_COUNT};
@@ -15,6 +16,8 @@ use crate::snapshot::EngineSnapshot;
 const COMMAND_CAPACITY: usize = 4096;
 const GARBAGE_CAPACITY: usize = 64;
 const MAX_COMMANDS_PER_BLOCK: usize = 512;
+/// Commands for a deck that arrive while it fades out for a load; beyond this the load completes at once.
+const HELD_COMMANDS: usize = 256;
 const STARTUP_FADE_MS: f32 = 400.0;
 const SYNC_CORRECTION_SECS: f64 = 0.4;
 const SYNC_MAX_NUDGE: f64 = 0.03;
@@ -79,6 +82,10 @@ pub struct RtEngine {
     frames_processed: u64,
     load: f32,
     tap: Option<SecondaryTap>,
+    pending_loads: [Option<Box<LoadRequest>>; DECK_COUNT],
+    held: [VecDeque<Command>; DECK_COUNT],
+    device_latency: f64,
+    output_latency: f64,
 }
 
 /// Control half: cheap to share between UI, MIDI and background threads.
@@ -107,6 +114,10 @@ pub fn create_engine(sample_rate: u32) -> (EngineHandle, RtEngine) {
         frames_processed: 0,
         load: 0.0,
         tap: None,
+        pending_loads: [None, None],
+        held: std::array::from_fn(|_| VecDeque::with_capacity(HELD_COMMANDS)),
+        device_latency: 0.0,
+        output_latency: 0.0,
     };
     let handle = EngineHandle {
         commands: Mutex::new(cmd_tx),
@@ -160,6 +171,13 @@ impl RtEngine {
         self.routing = routing;
     }
 
+    /// Delay between a callback and its first sample reaching the speakers, as the device reports it.
+    pub fn set_device_latency(&mut self, secs: f64) {
+        if secs.is_finite() {
+            self.device_latency = secs.clamp(0.0, 1.0);
+        }
+    }
+
     /// Installs or removes the secondary-output tap; returns the previous tap so the caller drops it off the audio thread.
     pub fn set_secondary_tap(&mut self, tap: Option<SecondaryTap>) -> Option<SecondaryTap> {
         std::mem::replace(&mut self.tap, tap)
@@ -171,18 +189,65 @@ impl RtEngine {
         }
     }
 
+    /// Applies a command, holding it back while its deck fades out for a pending load.
+    fn dispatch(&mut self, cmd: Command) {
+        if let Some(deck) = cmd.deck().filter(|&d| d < DECK_COUNT && self.pending_loads[d].is_some()) {
+            if self.held[deck].len() < HELD_COMMANDS {
+                self.held[deck].push_back(cmd);
+                return;
+            }
+            self.finish_load(deck);
+        }
+        let before = self.was_playing_mask();
+        let sync_target = match &cmd {
+            Command::Play { deck } | Command::TogglePlay { deck } => Some(*deck),
+            _ => None,
+        };
+        self.handle(cmd);
+        if let Some(deck) = sync_target
+            && deck < DECK_COUNT
+            && !before[deck]
+            && self.decks[deck].is_playing()
+            && self.decks[deck].sync_enabled()
+            && let Some(master) = self.master_deck.filter(|&m| m != deck)
+        {
+            self.align_phase(deck, master);
+        }
+    }
+
+    fn load_now(&mut self, deck: usize, request: Box<LoadRequest>) {
+        let d = &mut self.decks[deck];
+        let phrases = d.replace_phrase_starts(Box::default());
+        if let Some(old) = d.load(&request) {
+            self.release(Garbage::Track(old));
+        }
+        self.release(Garbage::Phrases(phrases));
+        self.release(Garbage::Request(request));
+    }
+
+    /// Swaps in the track waiting for its deck to fall silent, then replays the commands held meanwhile.
+    fn finish_load(&mut self, deck: usize) {
+        let Some(request) = self.pending_loads[deck].take() else { return };
+        self.load_now(deck, request);
+        while self.pending_loads[deck].is_none()
+            && let Some(cmd) = self.held[deck].pop_front()
+        {
+            self.dispatch(cmd);
+        }
+    }
+
     fn handle(&mut self, cmd: Command) {
         let q = self.quantize;
         match cmd {
             Command::Load { deck, request } => {
-                if let Some(d) = self.decks.get_mut(deck) {
-                    let phrases = d.replace_phrase_starts(Box::default());
-                    if let Some(old) = d.load(&request) {
-                        self.release(Garbage::Track(old));
-                    }
-                    self.release(Garbage::Phrases(phrases));
+                if deck >= DECK_COUNT {
+                    self.release(Garbage::Request(request));
+                } else if self.decks[deck].is_silent() {
+                    self.load_now(deck, request);
+                } else {
+                    self.decks[deck].fade_out();
+                    self.pending_loads[deck] = Some(request);
                 }
-                self.release(Garbage::Request(request));
             }
             Command::Eject { deck } => {
                 if let Some(old) = self.decks.get_mut(deck).and_then(|d| d.eject()) {
@@ -454,21 +519,7 @@ impl RtEngine {
 
         for _ in 0..MAX_COMMANDS_PER_BLOCK {
             let Ok(cmd) = self.commands.pop() else { break };
-            let before = self.was_playing_mask();
-            let sync_target = match &cmd {
-                Command::Play { deck } | Command::TogglePlay { deck } => Some(*deck),
-                _ => None,
-            };
-            self.handle(cmd);
-            if let Some(deck) = sync_target
-                && deck < DECK_COUNT
-                && !before[deck]
-                && self.decks[deck].is_playing()
-                && self.decks[deck].sync_enabled()
-                && let Some(master) = self.master_deck.filter(|&m| m != deck)
-            {
-                self.align_phase(deck, master);
-            }
+            self.dispatch(cmd);
         }
         self.update_master_and_sync();
         self.update_fx_tempo();
@@ -482,7 +533,13 @@ impl RtEngine {
             self.write_output(&mut output[offset * channels..(offset + n) * channels], channels, n);
             offset += n;
         }
+        for deck in 0..DECK_COUNT {
+            if self.pending_loads[deck].is_some() && self.decks[deck].is_silent() {
+                self.finish_load(deck);
+            }
+        }
         self.frames_processed += total as u64;
+        self.output_latency = self.device_latency + total as f64 / self.sample_rate as f64;
         if let Some(tap) = &mut self.tap {
             tap.end_block(total, self.sample_rate as u32);
         }
@@ -550,6 +607,7 @@ impl RtEngine {
         snap.master_deck = master.map(|m| m as u8);
         snap.sample_rate = self.sample_rate as u32;
         snap.frames_processed = self.frames_processed;
+        snap.output_latency_secs = self.output_latency;
         snap.callback_load = self.load;
         snap.cue_available = self.routing.cue_available();
         snap.beat_fx = self.mixer.beat_fx_snapshot();

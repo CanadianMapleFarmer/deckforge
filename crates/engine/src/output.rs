@@ -511,15 +511,20 @@ where
     device
         .build_output_stream(
             *config,
-            move |data: &mut [T], _| {
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
                 shared.callbacks.fetch_add(1, Ordering::Relaxed);
                 shared.last_frames.store((data.len() / channels) as u32, Ordering::Relaxed);
                 if scratch.len() < data.len() {
                     scratch.resize(data.len(), 0.0);
                 }
                 let buf = &mut scratch[..data.len()];
+                let stamp = info.timestamp();
+                let latency = stamp.playback.duration_since(stamp.callback).as_secs_f64();
                 match rt.try_lock() {
-                    Some(mut engine) => engine.process(buf, channels),
+                    Some(mut engine) => {
+                        engine.set_device_latency(latency);
+                        engine.process(buf, channels)
+                    }
                     None => buf.fill(0.0),
                 }
                 for (o, s) in data.iter_mut().zip(buf.iter()) {
