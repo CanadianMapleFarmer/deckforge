@@ -4,6 +4,14 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+- Key lock now uses Signalsmith Stretch. The treble stays intact and the sound no longer warbles when the tempo moves.
+- The jog wheel nudge is about four times stronger: a full turn moves the track about 0.13 s.
+
+### Fixed
+- Key lock no longer clicks or repeats audio when the jog wheel nudges a deck at zero tempo, or when you start or stop scratching.
+- Key-locked loops keep their exact length, and cues and hot cues are heard the moment they fire.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

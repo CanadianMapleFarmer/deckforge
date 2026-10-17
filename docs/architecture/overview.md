@@ -19,7 +19,7 @@
 | Crate | Responsibility |
 |---|---|
 | `common` | Shared domain types: `TrackAudio`, `Beatgrid`, `HotCue`, tempo ranges, curves. |
-| `dsp` | Original DSP: TPT state-variable filter, Linkwitz-Riley 3-band isolator, bipolar DJ filter, crossfader curves, soft limiter, peak meters, Catmull-Rom interpolation, WSOLA time-stretch (key lock). |
+| `dsp` | Original DSP: TPT state-variable filter, Linkwitz-Riley 3-band isolator, bipolar DJ filter, crossfader curves, soft limiter, peak meters, Catmull-Rom interpolation, and the key-lock stretcher: two Signalsmith Stretch voices (vendored, MIT) that crossfade on jumps and report the audible position. |
 | `analysis` | Symphonia decoding to stereo f32; spectral-flux + kick-envelope BPM/beatgrid; 3-band waveform envelopes. |
 | `engine` | Real-time two-deck engine (`RtEngine`), command queue, snapshots, mixer with PFL bus, `AudioManager` (cpal stream ownership, routing, reconnect, silent fallback). |
 | `controller` | `ControllerMapping` trait, DDJ-FLX4 mapping (decode + LED feedback), `ControllerService` (discovery, hot-plug, diagnostics log, injection). |
@@ -34,7 +34,7 @@
 - Parameter changes are smoothed (one-pole, 15 ms) and position jumps are de-clicked with a 96-frame crossfade.
 
 ## Signal flow per deck
-`track (native rate) → varispeed cubic read (rate = src/out × tempo × bend × sync-nudge)` or `WSOLA stretch (key lock)` → play/pause fade → **trim → isolator EQ → bipolar filter** → *(PFL tap → cue bus)* → channel fader → crossfader → master bus → master gain → soft limiter → master pair.
+`track (native rate) → varispeed cubic read (rate = src/out × tempo × bend × sync-nudge)` or `Signalsmith stretch (key lock, whenever the jog top is not held)` → play/pause fade → **trim → isolator EQ → bipolar filter** → *(PFL tap → cue bus)* → channel fader → crossfader → master bus → master gain → soft limiter → master pair.
 Headphones: `cue bus × mix + master × (1 − mix)` × level, or pure cue when `hardwarePhones` (the FLX4 blends cue/master and sets level in hardware).
 
 ## Routing

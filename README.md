@@ -34,7 +34,7 @@ Your music files are only ever read, never modified.
 ## Features
 
 **Decks**
-- Two decks with sync, master tempo, key lock (WSOLA time-stretch), quantize and pitch bend
+- Two decks with sync, key lock (master tempo, using [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)), quantize and pitch bend
 - Hot cues, loops (in/out, auto 1/4–32 beats, reloop) and beat jump; a loop pressed just before the beat still catches it
 - CDJ-style CUE behaviour and a jog wheel with scratch, bend and fast search
 
@@ -109,7 +109,7 @@ The `deckforge-cli` crate has device and simulation checks (`devices`, `flx4-sim
 ```
 apps/desktop/          Tauri 2 app — src-tauri (Rust backend) and src (Svelte 5 UI)
 crates/common          shared domain types
-crates/dsp             filters, EQ, effects, limiter, WSOLA key lock
+crates/dsp             filters, EQ, effects, limiter, key-lock time-stretch
 crates/analysis        decoding, BPM / beatgrid, key, phrases, waveform
 crates/engine          real-time two-deck engine, mixer, audio output
 crates/controller      MIDI service, DDJ-FLX4 mapping and LED feedback

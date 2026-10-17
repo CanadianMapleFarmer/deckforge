@@ -6,7 +6,7 @@ extern "C" {
 
 Stretch *df_stretch_new(float sample_rate) {
     auto *stretch = new Stretch(0x6465636b);
-    stretch->presetDefault(2, sample_rate);
+    stretch->presetDefault(2, sample_rate, true);
     return stretch;
 }
 
