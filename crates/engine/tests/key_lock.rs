@@ -150,3 +150,24 @@ fn key_lock_keeps_pitch_after_an_output_rate_change() {
     let p = h.snapshot().decks[0].position_secs;
     assert!((p - (0.3 + 2.0) * 1.1).abs() < 0.05, "position {p}");
 }
+
+#[test]
+fn one_jog_turn_nudges_a_useful_amount() {
+    for key_lock in [false, true] {
+        let (h, mut rt) = rig(track(20.0, sine), None, [None; HOT_CUE_SLOTS], 1.0);
+        h.send(Command::SetKeyLock { deck: 0, enabled: key_lock });
+        run(&mut rt, 0.5);
+        let before = h.snapshot().decks[0].position_secs;
+        let mut ticks = 0;
+        for _ in 0..94 {
+            h.send(Command::Jog { deck: 0, ticks: 7, mode: JogMode::Bend });
+            ticks += 7;
+            run(&mut rt, 0.01);
+        }
+        run(&mut rt, 1.0);
+        let elapsed = (94 + 94) as f64 * BLOCK as f64 / SR as f64;
+        let nudge = h.snapshot().decks[0].position_secs - before - elapsed;
+        let per_turn = nudge / (ticks as f64 / deckforge_engine::JOG_TICKS_PER_REV);
+        assert!((0.12..0.16).contains(&per_turn), "key lock {key_lock}: {per_turn:.3} s per turn");
+    }
+}
