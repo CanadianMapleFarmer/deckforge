@@ -7,3 +7,6 @@ publish.workspace = true
 
 [dependencies]
 deckforge-common.workspace = true
+
+[build-dependencies]
+cc.workspace = true

@@ -38,6 +38,7 @@ lofty = "0.25"
 realfft = "3.5"
 walkdir = "2.5"
 quick-xml = "0.42"
+cc = "1"
 dirs = "7"
 hound = "3.5"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }

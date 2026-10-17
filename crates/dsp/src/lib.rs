@@ -5,6 +5,7 @@ pub mod interp;
 pub mod isolator;
 pub mod limiter;
 pub mod meter;
+pub mod signalsmith;
 pub mod smooth;
 pub mod stretch;
 pub mod svf;
