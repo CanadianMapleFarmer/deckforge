@@ -103,7 +103,7 @@ impl Deck {
             fade: Smoothed::new(0.0, out_rate as f32, 2.0),
             pause_return: None,
             declick: None,
-            stretcher: Stretcher::new(),
+            stretcher: Stretcher::new(out_rate, MAX_BLOCK),
             stretching: false,
             buf_l: vec![0.0; MAX_BLOCK],
             buf_r: vec![0.0; MAX_BLOCK],
@@ -111,8 +111,14 @@ impl Deck {
     }
 
     pub fn set_output_rate(&mut self, out_rate: f64) {
+        let audible = self.to_frames(self.audible_secs());
         self.out_rate = out_rate;
         self.fade.set_time(out_rate as f32, 2.0);
+        self.stretcher = Stretcher::new(out_rate, MAX_BLOCK);
+        if self.stretching {
+            self.position = audible;
+            self.stretcher.jump(audible);
+        }
     }
 
     fn src_rate(&self) -> f64 {
@@ -184,8 +190,7 @@ impl Deck {
     /// Track time currently audible, compensating for time-stretch latency.
     pub fn audible_secs(&self) -> f64 {
         let frames = if self.stretching {
-            let step = self.src_rate() / self.out_rate;
-            self.stretcher.audible_position(step, self.tempo_ratio())
+            self.stretcher.audible_position()
         } else {
             self.position
         };
@@ -457,7 +462,8 @@ impl Deck {
             self.scratch_rate = if self.playing { step * self.tempo_ratio() } else { 0.0 };
             self.scratch_revs = 0.0;
             if self.stretching {
-                self.position = self.stretcher.audible_position(step, self.tempo_ratio());
+                self.position = self.stretcher.audible_position();
+                self.stretcher.release();
                 self.stretching = false;
             }
         }
@@ -611,12 +617,14 @@ impl Deck {
             self.scratch_revs = 0.0;
         }
 
-        let use_stretch = self.key_lock && !self.jog_touched && (tempo - 1.0).abs() > 1e-4;
+        let use_stretch = self.key_lock && !self.jog_touched;
         if use_stretch != self.stretching {
             if use_stretch {
+                self.declick = Some(Declick { old_pos: self.position, remaining: DECLICK_FRAMES });
                 self.stretcher.jump(self.position);
             } else {
-                self.position = self.stretcher.audible_position(step, tempo);
+                self.position = self.stretcher.audible_position();
+                self.stretcher.release();
             }
             self.stretching = use_stretch;
         }
@@ -626,15 +634,33 @@ impl Deck {
         let out_l = &mut self.buf_l[..n];
         let out_r = &mut self.buf_r[..n];
         if self.stretching {
-            self.stretcher.render(&track, step, tempo, out_l, out_r);
-            self.position = self.stretcher.position();
-            if let Some((a, b)) = loop_range
-                && self.position >= b
-            {
-                let len = (b - a).max(1.0);
-                self.position = a + (self.position - b) % len;
-                self.stretcher.jump(self.position);
+            let rate = step * tempo;
+            let mut done = 0;
+            while done < n {
+                let mut chunk = n - done;
+                if let Some((a, b)) = loop_range {
+                    let audible = self.stretcher.audible_position();
+                    if audible >= b {
+                        let len = (b - a).max(1.0);
+                        self.stretcher.jump(a + (audible - b) % len);
+                    } else if rate > 0.0 {
+                        chunk = chunk.min(((b - audible) / rate).ceil().max(1.0) as usize);
+                    }
+                }
+                self.stretcher.render(&track, step, tempo, &mut out_l[done..done + chunk], &mut out_r[done..done + chunk]);
+                done += chunk;
             }
+            if let Some(d) = &mut self.declick {
+                for i in 0..n.min(d.remaining) {
+                    let (ol, or) = read_cubic(&track, d.old_pos);
+                    let g = (d.remaining - i) as f32 / DECLICK_FRAMES as f32;
+                    out_l[i] += ol * g;
+                    out_r[i] += or * g;
+                    d.old_pos += rate;
+                }
+                self.declick = None;
+            }
+            self.position = self.stretcher.audible_position();
         } else {
             let rate = if self.jog_touched { self.scratch_rate } else { step * tempo };
             for i in 0..n {
@@ -666,6 +692,7 @@ impl Deck {
                     self.position = 0.0;
                 }
             }
+            self.stretcher.mix_release(&track, step, tempo, out_l, out_r);
         }
 
         for i in 0..n {
@@ -676,6 +703,7 @@ impl Deck {
         if !self.playing && self.fade.is_settled() && self.fade.value() == 0.0 {
             if let Some(ret) = self.pause_return.take() {
                 self.position = ret;
+                self.stretcher.release();
                 self.stretcher.jump(ret);
             }
             self.declick = None;
