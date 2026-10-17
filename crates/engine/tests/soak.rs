@@ -158,6 +158,18 @@ fn an_audible_deck_under_abuse_never_breaks_the_master() {
 }
 
 #[test]
+fn both_decks_under_abuse_never_break_the_master() {
+    for seed in [21, 22] {
+        let r = soak(1.0, &[0, 1], 40.0, seed);
+        assert_eq!(r.non_finite, 0, "seed {seed}");
+        assert_eq!(r.over_full_scale, 0, "seed {seed}");
+        assert!(r.worst_jump < 0.1, "seed {seed}: click of {} after {:?}", r.worst_jump, r.last_ops);
+    }
+}
+
+/// Wall-clock budget check; shared CI machines are too noisy for it, so run it on the target hardware.
+#[test]
+#[ignore]
 fn both_decks_under_abuse_stay_within_the_block_budget() {
     let budget = Duration::from_secs_f64(BLOCK as f64 / SR as f64);
     for seed in [21, 22] {
