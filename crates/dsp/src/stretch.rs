@@ -5,56 +5,111 @@ use crate::signalsmith::Voice;
 
 const CROSSFADE: usize = 96;
 const MAX_TEMPO: f64 = 4.0;
+const HISTORY: usize = 512;
+const LANES: usize = 3;
+/// Below this tempo the stretched output fades to silence instead of freezing on one spectrum.
+const GATE_TEMPO: f64 = 0.02;
 
 struct Lane {
     voice: Voice,
     read: f64,
     carry: f64,
+    clock: u64,
+    history: [(u64, f64); HISTORY],
+    head: usize,
+    filled: usize,
+    weight: f32,
+    target: f32,
+    delta: f32,
 }
 
 impl Lane {
-    fn latency(&self, tempo: f64) -> f64 {
-        self.voice.input_latency() as f64 + self.voice.output_latency() as f64 * tempo
+    fn new(out_rate: f64) -> Self {
+        Self {
+            voice: Voice::new(out_rate),
+            read: 0.0,
+            carry: 0.0,
+            clock: 0,
+            history: [(0, 0.0); HISTORY],
+            head: 0,
+            filled: 0,
+            weight: 0.0,
+            target: 0.0,
+            delta: 0.0,
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.weight > 0.0 || self.target > 0.0
+    }
+
+    fn fade_to(&mut self, target: f32) {
+        self.target = target;
+        self.delta = ((target - self.weight).abs() / CROSSFADE as f32).max(1e-6);
+    }
+
+    /// Records which source position the stretcher is processing at the current output clock.
+    fn record(&mut self, processing: f64) {
+        self.head = (self.head + 1) % HISTORY;
+        self.history[self.head] = (self.clock, processing);
+        self.filled = (self.filled + 1).min(HISTORY);
+    }
+
+    /// Source position heard now: what was being processed `output_latency` frames ago.
+    fn audible(&self, step: f64, tempo: f64) -> f64 {
+        let at = self.clock as f64 - self.voice.output_latency() as f64;
+        let mut newer = self.history[self.head];
+        for k in 1..self.filled {
+            let older = self.history[(self.head + HISTORY - k) % HISTORY];
+            if (older.0 as f64) <= at {
+                let span = (newer.0 - older.0) as f64;
+                let t = if span > 0.0 { (at - older.0 as f64) / span } else { 1.0 };
+                return older.1 + (newer.1 - older.1) * t;
+            }
+            newer = older;
+        }
+        newer.1 - (newer.0 as f64 - at) * tempo * step
     }
 }
 
-/// Key-lock time stretcher on Signalsmith Stretch: two voices so jumps crossfade into audio that is already in place.
-/// Positions are source frames; `step` is source frames per output frame at native pitch.
+/// Key-lock time stretcher on Signalsmith Stretch. Every voice has its own gain ramp, so jumps, releases and
+/// their overlaps always crossfade. Positions are source frames; `step` is source frames per output frame at native pitch.
 pub struct Stretcher {
-    lanes: [Lane; 2],
-    active: usize,
+    lanes: [Lane; LANES],
+    main: Option<usize>,
     pending: Option<f64>,
-    idle: bool,
-    fade_in: usize,
-    fade_out: usize,
-    releasing: usize,
+    last_audible: f64,
+    gate: f32,
     tempo: f64,
     step: f64,
     in_l: Vec<f32>,
     in_r: Vec<f32>,
     tail_l: Vec<f32>,
     tail_r: Vec<f32>,
+    mix_l: Vec<f32>,
+    mix_r: Vec<f32>,
+    mix_w: Vec<f32>,
 }
 
 impl Stretcher {
     pub fn new(out_rate: f64, max_block: usize) -> Self {
-        let lane = || Lane { voice: Voice::new(out_rate), read: 0.0, carry: 0.0 };
-        let lanes = [lane(), lane()];
-        let input = lanes[0].voice.preroll_frames().max((max_block as f64 * MAX_TEMPO) as usize + 2);
+        let lanes = std::array::from_fn(|_| Lane::new(out_rate));
+        let input = Voice::new(out_rate).preroll_frames().max((max_block as f64 * MAX_TEMPO) as usize + 2);
         Self {
             lanes,
-            active: 0,
+            main: None,
             pending: None,
-            idle: true,
-            fade_in: 0,
-            fade_out: 0,
-            releasing: 0,
+            last_audible: 0.0,
+            gate: 1.0,
             tempo: 1.0,
             step: 1.0,
             in_l: vec![0.0; input],
             in_r: vec![0.0; input],
             tail_l: vec![0.0; max_block],
             tail_r: vec![0.0; max_block],
+            mix_l: vec![0.0; max_block],
+            mix_r: vec![0.0; max_block],
+            mix_w: vec![0.0; max_block],
         }
     }
 
@@ -69,43 +124,42 @@ impl Stretcher {
 
     /// Source position audible at the next output frame.
     pub fn audible_position(&self) -> f64 {
-        match self.pending {
-            Some(p) => p,
-            None => {
-                let lane = &self.lanes[self.active];
-                lane.read - lane.latency(self.tempo) * self.step
-            }
+        match (self.pending, self.main) {
+            (Some(p), _) => p,
+            (None, Some(m)) => self.lanes[m].audible(self.step, self.tempo),
+            (None, None) => self.last_audible,
         }
     }
 
-    pub fn is_idle(&self) -> bool {
-        self.idle && self.pending.is_none()
-    }
-
-    /// Stops after a short fade; `mix_release` crossfades that tail into the caller's output.
+    /// Fades everything out; `mix_release` crossfades that tail into the caller's output.
     pub fn release(&mut self) {
-        if !self.idle {
-            self.releasing = CROSSFADE;
-            self.fade_out = 0;
-            self.fade_in = 0;
-        }
+        self.last_audible = self.audible_position();
         self.pending = None;
-        self.idle = true;
+        self.main = None;
+        for lane in self.lanes.iter_mut().filter(|l| l.busy()) {
+            lane.fade_to(0.0);
+        }
+    }
+
+    /// Drops all voices at once; only for when the output is already silent.
+    pub fn silence(&mut self) {
+        self.release();
+        for lane in &mut self.lanes {
+            lane.weight = 0.0;
+            lane.target = 0.0;
+        }
     }
 
     pub fn mix_release(&mut self, track: &TrackAudio, step: f64, tempo: f64, out_l: &mut [f32], out_r: &mut [f32]) {
-        if self.releasing == 0 {
+        if self.main.is_some() || !self.lanes.iter().any(Lane::busy) {
             return;
         }
-        let n = out_l.len().min(self.releasing);
-        let active = self.active;
-        self.process_lane(active, track, step, tempo, n);
+        let n = out_l.len().min(out_r.len());
+        self.compose(track, step, tempo, n);
         for i in 0..n {
-            let g = (self.releasing - i) as f32 / CROSSFADE as f32;
-            out_l[i] = out_l[i] * (1.0 - g) + self.tail_l[i] * g;
-            out_r[i] = out_r[i] * (1.0 - g) + self.tail_r[i] * g;
+            out_l[i] = out_l[i] * (1.0 - self.mix_w[i]) + self.mix_l[i];
+            out_r[i] = out_r[i] * (1.0 - self.mix_w[i]) + self.mix_r[i];
         }
-        self.releasing -= n;
     }
 
     pub fn render(&mut self, track: &TrackAudio, step: f64, tempo: f64, out_l: &mut [f32], out_r: &mut [f32]) {
@@ -113,43 +167,47 @@ impl Stretcher {
         let n = out_l.len().min(out_r.len());
         self.step = step;
         self.tempo = tempo;
-        if let Some(target) = self.pending.take_if(|_| self.fade_out == 0 && self.fade_in == 0) {
-            if self.idle {
-                self.seek(self.active, track, step, tempo, target);
-                self.fade_in = CROSSFADE;
-                self.fade_out = 0;
-            } else {
-                let next = 1 - self.active;
-                self.seek(next, track, step, tempo, target);
-                self.active = next;
-                self.fade_out = CROSSFADE;
-                self.fade_in = 0;
+        if let Some(target) = self.pending
+            && let Some(free) = self.lanes.iter().position(|l| !l.busy())
+        {
+            self.pending = None;
+            for lane in self.lanes.iter_mut().filter(|l| l.busy()) {
+                lane.fade_to(0.0);
             }
-            self.idle = false;
-            self.releasing = 0;
+            self.seek(free, track, step, tempo, target);
+            self.lanes[free].weight = 0.0;
+            self.lanes[free].fade_to(1.0);
+            self.main = Some(free);
         }
-        let active = self.active;
-        self.process_lane(active, track, step, tempo, n);
-        out_l[..n].copy_from_slice(&self.tail_l[..n]);
-        out_r[..n].copy_from_slice(&self.tail_r[..n]);
-        if self.fade_in > 0 {
-            let m = n.min(self.fade_in);
-            for i in 0..m {
-                let g = 1.0 - (self.fade_in - i) as f32 / CROSSFADE as f32;
-                out_l[i] *= g;
-                out_r[i] *= g;
-            }
-            self.fade_in -= m;
+        self.compose(track, step, tempo, n);
+        let gate_target = (tempo / GATE_TEMPO).min(1.0) as f32;
+        for i in 0..n {
+            self.gate += (gate_target - self.gate).clamp(-1.0 / CROSSFADE as f32, 1.0 / CROSSFADE as f32);
+            out_l[i] = self.mix_l[i] * self.gate;
+            out_r[i] = self.mix_r[i] * self.gate;
         }
-        if self.fade_out > 0 {
-            let m = n.min(self.fade_out);
-            self.process_lane(1 - active, track, step, tempo, m);
-            for i in 0..m {
-                let g = (self.fade_out - i) as f32 / CROSSFADE as f32;
-                out_l[i] = out_l[i] * (1.0 - g) + self.tail_l[i] * g;
-                out_r[i] = out_r[i] * (1.0 - g) + self.tail_r[i] * g;
+        if let Some(m) = self.main {
+            self.last_audible = self.lanes[m].audible(step, tempo);
+        }
+    }
+
+    fn compose(&mut self, track: &TrackAudio, step: f64, tempo: f64, n: usize) {
+        self.mix_l[..n].fill(0.0);
+        self.mix_r[..n].fill(0.0);
+        self.mix_w[..n].fill(0.0);
+        for k in 0..LANES {
+            if !self.lanes[k].busy() {
+                continue;
             }
-            self.fade_out -= m;
+            self.process_lane(k, track, step, tempo, n);
+            let lane = &mut self.lanes[k];
+            for i in 0..n {
+                let w = lane.weight;
+                self.mix_l[i] += self.tail_l[i] * w;
+                self.mix_r[i] += self.tail_r[i] * w;
+                self.mix_w[i] += w;
+                lane.weight += (lane.target - lane.weight).clamp(-lane.delta, lane.delta);
+            }
         }
     }
 
@@ -166,6 +224,8 @@ impl Stretcher {
             self.in_r[k] = b;
         }
         l.voice.seek(&self.in_l[..preroll], &self.in_r[..preroll], tempo.max(1e-3));
+        l.filled = 0;
+        l.record(target);
         let mut warmup = l.voice.output_latency();
         while warmup > 0 {
             let n = warmup.min(self.tail_l.len());
@@ -186,6 +246,9 @@ impl Stretcher {
         }
         l.read += count as f64 * step;
         l.voice.process(&self.in_l[..count], &self.in_r[..count], &mut self.tail_l[..n], &mut self.tail_r[..n]);
+        l.clock += n as u64;
+        let processing = l.read - l.voice.input_latency() as f64 * step;
+        l.record(processing);
     }
 }
 
@@ -300,6 +363,28 @@ mod tests {
     }
 
     #[test]
+    fn audible_position_moves_smoothly_through_tempo_changes() {
+        let t = track(20.0, tones(&[440.0]));
+        let mut st = Stretcher::new(OUT, BLOCK);
+        st.jump(SRC as f64);
+        let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+        let mut tempo = 1.0;
+        for b in 0..600 {
+            if b % 40 == 0 {
+                tempo = [1.0, 0.85, 1.12, 1.4, 0.9][(b / 40) % 5];
+            }
+            let before = st.audible_position();
+            st.render(&t, step(), tempo, &mut l, &mut r);
+            let moved = st.audible_position() - before;
+            if b > 2 {
+                let lo = BLOCK as f64 * step() * 0.8;
+                let hi = BLOCK as f64 * step() * 1.45;
+                assert!(moved > lo && moved < hi, "block {b}: audible moved {moved:.1} frames at tempo {tempo}");
+            }
+        }
+    }
+
+    #[test]
     fn a_jump_is_heard_immediately() {
         let t = track(12.0, bursts);
         let mut st = Stretcher::new(OUT, BLOCK);
@@ -349,6 +434,47 @@ mod tests {
     }
 
     #[test]
+    fn releasing_in_the_middle_of_a_crossfade_does_not_click() {
+        let t = track(10.0, tones(&[440.0]));
+        for offset in [0usize, 16, 48, 80] {
+            let mut st = Stretcher::new(OUT, BLOCK);
+            st.jump(SRC as f64);
+            let (mut out, _) = render(&mut st, &t, 1.0, 0.5);
+            st.jump(4.37 * SRC as f64);
+            let (mut l, mut r) = (vec![0.0; 32], vec![0.0; 32]);
+            let mut done = 0;
+            while done < offset {
+                st.render(&t, step(), 1.0, &mut l, &mut r);
+                out.extend_from_slice(&l);
+                done += 32;
+            }
+            st.release();
+            for _ in 0..8 {
+                l.fill(0.0);
+                r.fill(0.0);
+                st.mix_release(&t, step(), 1.0, &mut l, &mut r);
+                out.extend_from_slice(&l);
+            }
+            assert!(max_second_difference(&out) < 0.01, "release {offset} frames into a crossfade");
+        }
+    }
+
+    #[test]
+    fn zero_tempo_fades_to_silence_and_back() {
+        let t = track(10.0, tones(&[440.0]));
+        let mut st = Stretcher::new(OUT, BLOCK);
+        st.jump(SRC as f64);
+        let (mut out, _) = render(&mut st, &t, 1.0, 0.5);
+        let (stopped, _) = render(&mut st, &t, 0.0, 1.0);
+        assert!(stopped[stopped.len() / 2..].iter().all(|v| v.abs() < 1e-4), "silent at tempo 0");
+        out.extend_from_slice(&stopped);
+        let (back, _) = render(&mut st, &t, 1.0, 0.5);
+        assert!(amplitude(&back[back.len() / 2..], 440.0) > 0.15, "plays again");
+        out.extend_from_slice(&back);
+        assert!(max_second_difference(&out) < 0.01);
+    }
+
+    #[test]
     fn release_fades_out_without_a_click() {
         let t = track(10.0, tones(&[440.0]));
         let mut st = Stretcher::new(OUT, BLOCK);
@@ -376,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn rendering_does_not_allocate() {
+    fn rendering_does_not_allocate_on_the_rust_side() {
         let t = track(10.0, tones(&[440.0, 3000.0]));
         let mut st = Stretcher::new(OUT, BLOCK);
         st.jump(0.0);

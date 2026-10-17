@@ -171,3 +171,27 @@ fn one_jog_turn_nudges_a_useful_amount() {
         assert!((0.12..0.16).contains(&per_turn), "key lock {key_lock}: {per_turn:.3} s per turn");
     }
 }
+
+#[test]
+fn a_loop_shorter_than_the_audio_block_keeps_its_length() {
+    let grid = Some(Beatgrid { bpm: 120.0, first_beat_secs: 0.0 });
+    let click = |t: f64| if t % 2.0 < 0.005 { (std::f64::consts::TAU * 2000.0 * t).sin() as f32 * 0.5 } else { 0.0 };
+    let (h, mut rt) = rig(track(20.0, click), grid, [None; HOT_CUE_SLOTS], 1.0);
+    let mut buf = vec![0.0; 2048 * CH];
+    rt.process(&mut buf, CH);
+    h.send(Command::BeatLoop { deck: 0, beats: 1.0 / 16.0 });
+    let mut out = Vec::new();
+    for _ in 0..48 {
+        rt.process(&mut buf, CH);
+        out.extend(buf.chunks(CH).map(|f| f[0]));
+    }
+    let heard = onsets(&out);
+    assert!(heard.len() > 40, "{} onsets", heard.len());
+    let expected = 0.5 / 16.0 * SR as f64;
+    for pair in heard[1..].windows(2) {
+        let err = (pair[1] - pair[0]) as f64 - expected;
+        assert!(err.abs() < 0.003 * SR as f64, "loop period {} frames, expected {expected:.0}", pair[1] - pair[0]);
+    }
+    let p = h.snapshot().decks[0].position_secs;
+    assert!(p < 0.5 / 16.0 + 0.003, "position {p} stays inside the loop");
+}

@@ -1,4 +1,4 @@
-use deckforge_common::{Beatgrid, HotCue, SharedTrack, TempoRange, HOT_CUE_PALETTE, HOT_CUE_SLOTS};
+use deckforge_common::{Beatgrid, HotCue, SharedTrack, TempoRange, TrackAudio, HOT_CUE_PALETTE, HOT_CUE_SLOTS};
 use deckforge_dsp::interp::read_cubic;
 use deckforge_dsp::{Smoothed, Stretcher};
 
@@ -31,10 +31,72 @@ struct Preview {
     latched: bool,
 }
 
+const TAILS: usize = 4;
+
 #[derive(Debug, Clone, Copy)]
-struct Declick {
-    old_pos: f64,
+struct Tail {
+    position: f64,
+    gain: f32,
     remaining: usize,
+}
+
+impl Tail {
+    fn weight(&self) -> f32 {
+        self.gain * self.remaining as f32 / DECLICK_FRAMES as f32
+    }
+}
+
+/// Fading copies of the audio that was playing before each jump; any number of overlapping jumps stays continuous.
+#[derive(Debug, Default)]
+struct Tails([Option<Tail>; TAILS]);
+
+impl Tails {
+    fn weight(&self) -> f32 {
+        self.0.iter().flatten().map(Tail::weight).sum()
+    }
+
+    /// The path playing at `position` stops being the main path and fades out from its current weight.
+    fn start(&mut self, position: f64) {
+        let main = (1.0 - self.weight()).max(0.0);
+        for t in self.0.iter_mut().flatten() {
+            t.gain = t.weight();
+            t.remaining = DECLICK_FRAMES;
+        }
+        let tail = Tail { position, gain: main, remaining: DECLICK_FRAMES };
+        let slot = match self.0.iter().position(Option::is_none) {
+            Some(free) => free,
+            None => (0..TAILS).min_by(|&a, &b| self.0[a].map_or(0.0, |t| t.gain).total_cmp(&self.0[b].map_or(0.0, |t| t.gain))).unwrap_or(0),
+        };
+        self.0[slot] = Some(tail);
+    }
+
+    /// Weighted sum of the tails for one frame, and their total weight; advances them by `rate`.
+    fn next(&mut self, track: &TrackAudio, rate: f64) -> (f32, f32, f32) {
+        let (mut l, mut r, mut w) = (0.0, 0.0, 0.0);
+        for slot in &mut self.0 {
+            if let Some(t) = slot {
+                let g = t.weight();
+                let (tl, tr) = read_cubic(track, t.position);
+                l += tl * g;
+                r += tr * g;
+                w += g;
+                t.position += rate;
+                t.remaining -= 1;
+                if t.remaining == 0 {
+                    *slot = None;
+                }
+            }
+        }
+        (l, r, w)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.iter().all(Option::is_none)
+    }
+
+    fn clear(&mut self) {
+        self.0 = [None; TAILS];
+    }
 }
 
 pub struct Deck {
@@ -65,7 +127,8 @@ pub struct Deck {
     scratch_rate: f64,
     fade: Smoothed,
     pause_return: Option<f64>,
-    declick: Option<Declick>,
+    tails: Tails,
+    unloading: bool,
     stretcher: Stretcher,
     stretching: bool,
     pub buf_l: Vec<f32>,
@@ -102,7 +165,8 @@ impl Deck {
             scratch_rate: 0.0,
             fade: Smoothed::new(0.0, out_rate as f32, 2.0),
             pause_return: None,
-            declick: None,
+            tails: Tails::default(),
+            unloading: false,
             stretcher: Stretcher::new(out_rate, MAX_BLOCK),
             stretching: false,
             buf_l: vec![0.0; MAX_BLOCK],
@@ -194,7 +258,7 @@ impl Deck {
         } else {
             self.position
         };
-        self.to_secs(frames)
+        self.to_secs(frames.clamp(0.0, self.frames()))
     }
 
     pub fn beat_position(&self) -> Option<f64> {
@@ -213,6 +277,7 @@ impl Deck {
     /// Returns the previously loaded track so the caller can release it off the audio thread.
     pub fn load(&mut self, req: &LoadRequest) -> Option<SharedTrack> {
         let old = self.track.replace(req.track.clone());
+        self.unloading = false;
         self.token = req.token;
         self.grid = req.grid;
         self.cue_secs = req.cue_secs.unwrap_or_else(|| req.grid.map_or(0.0, |g| g.first_beat_secs.max(0.0)));
@@ -226,8 +291,9 @@ impl Deck {
         self.bend = 0.0;
         self.fade.reset(0.0);
         self.pause_return = None;
-        self.declick = None;
+        self.tails.clear();
         self.position = self.to_frames(self.cue_secs);
+        self.stretcher.silence();
         self.stretcher.jump(self.position);
         old
     }
@@ -247,7 +313,7 @@ impl Deck {
     fn jump_frames(&mut self, target: f64) {
         let target = target.clamp(0.0, self.frames());
         if self.fade.value() > 0.0 && !self.stretching {
-            self.declick = Some(Declick { old_pos: self.position, remaining: DECLICK_FRAMES });
+            self.tails.start(self.position);
         }
         self.position = target;
         self.stretcher.jump(target);
@@ -587,6 +653,17 @@ impl Deck {
         }
     }
 
+    /// True once the deck's output has faded fully out.
+    pub fn is_silent(&self) -> bool {
+        self.fade.is_settled() && self.fade.value() == 0.0
+    }
+
+    /// Fades the deck out ahead of a track change; the caller loads once `is_silent` holds.
+    pub fn fade_out(&mut self) {
+        self.unloading = true;
+        self.fade.set(0.0);
+    }
+
     /// Renders `n` frames into `buf_l`/`buf_r`. Returns true if any audio was produced.
     pub fn render(&mut self, n: usize) -> bool {
         debug_assert!(n <= MAX_BLOCK);
@@ -611,7 +688,9 @@ impl Deck {
             return false;
         }
         if self.jog_touched {
-            self.fade.set(1.0);
+            if !self.unloading {
+                self.fade.set(1.0);
+            }
             let measured = self.scratch_revs * SCRATCH_SECS_PER_REV * track.sample_rate as f64 / n as f64;
             self.scratch_rate += (measured - self.scratch_rate) * SCRATCH_SMOOTHING;
             self.scratch_revs = 0.0;
@@ -620,7 +699,7 @@ impl Deck {
         let use_stretch = self.key_lock && !self.jog_touched;
         if use_stretch != self.stretching {
             if use_stretch {
-                self.declick = Some(Declick { old_pos: self.position, remaining: DECLICK_FRAMES });
+                self.tails.start(self.position);
                 self.stretcher.jump(self.position);
             } else {
                 self.position = self.stretcher.audible_position();
@@ -639,42 +718,36 @@ impl Deck {
             while done < n {
                 let mut chunk = n - done;
                 if let Some((a, b)) = loop_range {
-                    let audible = self.stretcher.audible_position();
+                    let mut audible = self.stretcher.audible_position();
                     if audible >= b {
-                        let len = (b - a).max(1.0);
-                        self.stretcher.jump(a + (audible - b) % len);
-                    } else if rate > 0.0 {
+                        audible = a + (audible - b) % (b - a).max(1.0);
+                        self.stretcher.jump(audible);
+                    }
+                    if rate > 0.0 {
                         chunk = chunk.min(((b - audible) / rate).ceil().max(1.0) as usize);
                     }
                 }
                 self.stretcher.render(&track, step, tempo, &mut out_l[done..done + chunk], &mut out_r[done..done + chunk]);
                 done += chunk;
             }
-            if let Some(d) = &mut self.declick {
-                for i in 0..n.min(d.remaining) {
-                    let (ol, or) = read_cubic(&track, d.old_pos);
-                    let g = (d.remaining - i) as f32 / DECLICK_FRAMES as f32;
-                    out_l[i] += ol * g;
-                    out_r[i] += or * g;
-                    d.old_pos += rate;
+            for i in 0..n {
+                if self.tails.is_empty() {
+                    break;
                 }
-                self.declick = None;
+                let (tl, tr, _) = self.tails.next(&track, rate);
+                out_l[i] += tl;
+                out_r[i] += tr;
             }
             self.position = self.stretcher.audible_position();
         } else {
             let rate = if self.jog_touched { self.scratch_rate } else { step * tempo };
             for i in 0..n {
                 let (mut l, mut r) = read_cubic(&track, self.position);
-                if let Some(d) = &mut self.declick {
-                    let (ol, or) = read_cubic(&track, d.old_pos);
-                    let g = 1.0 - d.remaining as f32 / DECLICK_FRAMES as f32;
-                    l = l * g + ol * (1.0 - g);
-                    r = r * g + or * (1.0 - g);
-                    d.old_pos += rate;
-                    d.remaining -= 1;
-                    if d.remaining == 0 {
-                        self.declick = None;
-                    }
+                if !self.tails.is_empty() {
+                    let (tl, tr, w) = self.tails.next(&track, rate);
+                    let g = (1.0 - w).max(0.0);
+                    l = l * g + tl;
+                    r = r * g + tr;
                 }
                 out_l[i] = l;
                 out_r[i] = r;
@@ -685,7 +758,7 @@ impl Deck {
                 {
                     let len = (b - a).max(1.0);
                     let wrapped = a + (self.position - b) % len;
-                    self.declick = Some(Declick { old_pos: self.position, remaining: DECLICK_FRAMES });
+                    self.tails.start(self.position);
                     self.position = wrapped;
                 }
                 if self.position < 0.0 {
@@ -703,10 +776,10 @@ impl Deck {
         if !self.playing && self.fade.is_settled() && self.fade.value() == 0.0 {
             if let Some(ret) = self.pause_return.take() {
                 self.position = ret;
-                self.stretcher.release();
+                self.stretcher.silence();
                 self.stretcher.jump(ret);
             }
-            self.declick = None;
+            self.tails.clear();
         }
         if self.position >= frames && self.playing && !self.jog_touched {
             self.position = frames;
