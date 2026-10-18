@@ -45,7 +45,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "j
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 sha2 = "0.10"
 base64 = "0.22"
-getrandom = "0.3"
+getrandom = "0.4"
 url = "2"
 unicode-normalization = "0.1"
 keyring = "3.6"
