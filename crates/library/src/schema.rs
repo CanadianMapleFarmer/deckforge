@@ -84,6 +84,36 @@ ALTER TABLE playlists ADD COLUMN is_folder INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE playlists ADD COLUMN source TEXT;
 ALTER TABLE playlists ADD COLUMN renamed INTEGER NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX playlists_source ON playlists(source);
+"#, r#"
+CREATE TABLE sets (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    clock_start REAL NOT NULL
+);
+CREATE TABLE set_entries (
+    id INTEGER PRIMARY KEY,
+    set_id INTEGER NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+    track_id INTEGER,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    path TEXT NOT NULL,
+    key TEXT,
+    bpm REAL,
+    audible_secs REAL NOT NULL,
+    took_over_secs REAL,
+    removed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX set_entries_set ON set_entries(set_id, audible_secs);
+CREATE TABLE recordings (
+    id INTEGER PRIMARY KEY,
+    set_id INTEGER NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    started_secs REAL NOT NULL,
+    stopped_secs REAL,
+    format TEXT NOT NULL
+);
 "#];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

@@ -53,6 +53,12 @@ Your music files are only ever read, never modified.
 - SQLite collection with search and background analysis
 - Playlists in nested folders, imported from music folders, M3U/M3U8 files or rekordbox XML exports, and refreshed in place on re-import
 - Spotify playlist matching to your local files (Spotify audio is never captured)
+- **Set history**: every set is logged automatically with the time each track took over, browsable by date, with a one-click copy of the `00:00 Artist – Title` tracklist and export to CSV, CUE or video-editor markers
+
+**Recording**
+- One-click recording of the mix to WAV (RF64 past 4 GB) or FLAC, 16 or 24-bit at 44.1 or 48 kHz, written on its own thread so the live output is never touched
+- Taken before the master volume and limited like the master, so turning the room down never changes the file
+- A tracklist, plus optional CSV, CUE and DaVinci Resolve / Premiere Pro markers, written next to each recording
 
 **Hardware**
 - Full Pioneer DJ **DDJ-FLX4** mapping with host-driven LED feedback, soft takeover and keepalive
@@ -114,7 +120,8 @@ crates/analysis        decoding, BPM / beatgrid, key, phrases, waveform
 crates/engine          real-time two-deck engine, mixer, audio output
 crates/controller      MIDI service, DDJ-FLX4 mapping and LED feedback
 crates/gfx             wgpu waveform renderer
-crates/library         SQLite collection
+crates/library         SQLite collection and set history
+crates/recorder        WAV/RF64 and FLAC set recording
 crates/spotify         Spotify playlist import (PKCE, user-supplied client ID)
 crates/cli             diagnostics and simulation tools
 docs/                  architecture, design notes, FLX4 MIDI reference, roadmap

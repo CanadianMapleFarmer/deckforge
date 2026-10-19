@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   ActiveOutput, AnalysisProgress, ControllerAppAction, ControllerStatus, DeckIndex, EngineSnapshot,
   ImportResult, LoadResult, PlaylistImportReport, PlaylistImportSummary, MidiLogEntry, OutputDeviceInfo, OutputRequest, OutputStatus, Playlist,
-  Phrase, Routing, SecondaryOutputRequest, SecondaryOutputStatus, SpotifyImportResult, SpotifyPlaylist, SpotifyStatus, SpotifyTrack, TrackSummary, UiCommand,
+  Phrase, RecorderStatus, RecordingSettings, Routing, SecondaryOutputRequest, SetDetail, SetSummary, ExportFormat, SecondaryOutputStatus, SpotifyImportResult, SpotifyPlaylist, SpotifyStatus, SpotifyTrack, TrackSummary, UiCommand,
   Waveform,
 } from './types';
 
@@ -16,6 +16,8 @@ export const EVENTS = {
   controllerStatus: 'controller://status', // ControllerStatus, 1 Hz
   controllerAction: 'controller://app-action', // ControllerAppAction
   audioStatus: 'audio://status', // OutputStatus, 1 Hz
+  historyChanged: 'history://changed', // null
+  recordingStatus: 'recording://status', // RecorderStatus | null, 1 Hz
 } as const;
 
 export const api = {
@@ -78,6 +80,25 @@ export const api = {
   spotifyPlaylistTracks: (playlistId: string) => invoke<SpotifyTrack[]>('spotify_playlist_tracks', { playlistId }),
   spotifyImportPlaylist: (playlistId: string) =>
     invoke<SpotifyImportResult>('spotify_import_playlist', { playlistId }),
+
+  historySets: () => invoke<SetSummary[]>('history_sets'),
+  historySet: (id: number) => invoke<SetDetail>('history_set', { id }),
+  historyRename: (id: number, name: string) => invoke<void>('history_rename', { id, name }),
+  /** Rejects while the set is being recorded. Never deletes recordings from disk. */
+  historyDelete: (id: number) => invoke<void>('history_delete', { id }),
+  historyRemoveEntry: (entryId: number) => invoke<void>('history_remove_entry', { entryId }),
+  historyTracklist: (id: number) => invoke<string>('history_tracklist', { id }),
+  historyExport: (id: number, format: ExportFormat, path: string) => invoke<void>('history_export', { id, format, path }),
+  historyToPlaylist: (id: number) => invoke<number>('history_to_playlist', { id }),
+  /** Returns how many recordings had their tracklist and marker files rewritten. */
+  historyRewriteRecordingFiles: (id: number) => invoke<number>('history_rewrite_recording_files', { id }),
+  recordingStart: () => invoke<RecorderStatus>('recording_start'),
+  /** Resolves with the finished file's path, or null when nothing was recording. */
+  recordingStop: () => invoke<string | null>('recording_stop'),
+  recordingStatus: () => invoke<RecorderStatus | null>('recording_status'),
+  recordingSettings: () => invoke<RecordingSettings>('recording_settings'),
+  recordingSetSettings: (settings: RecordingSettings) => invoke<RecordingSettings>('recording_set_settings', { settings }),
+  openPath: (path: string) => invoke<void>('open_path', { path }),
 };
 
 export function decodeWaveform(buf: ArrayBuffer): Waveform {

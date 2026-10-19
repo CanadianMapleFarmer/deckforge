@@ -68,6 +68,7 @@ pub enum Command {
     CrossfaderCurve(CrossfaderCurve),
     EqCurve(EqCurve),
     MasterLevel(f32),
+    SetRecordTap(crate::record::RecordTapSlot),
     HeadphoneMix(f32),
     HeadphoneLevel(f32),
     Quantize(bool),

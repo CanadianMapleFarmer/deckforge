@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { engine } from '$lib/state/engine.svelte';
   import { library } from '$lib/state/library.svelte';
+  import { history } from '$lib/state/history.svelte';
   import { ui } from '$lib/state/ui.svelte';
   import { installShortcuts } from '$lib/shortcuts';
   import TopBar from '$lib/components/TopBar.svelte';
@@ -35,16 +36,20 @@
     (async () => {
       const offEngine = await engine.init();
       const offLib = await library.init();
+      const offHistory = await history.init();
       if (disposed) {
         offEngine();
         offLib();
+        offHistory();
         return;
       }
-      cleanups.push(offEngine, offLib);
+      cleanups.push(offEngine, offLib, offHistory);
       if (engine.preview === false) void runSelfTest();
       else {
         document.body.classList.add('preview');
-        if (new URLSearchParams(location.search).get('view') === 'spotify') ui.browserView = 'spotify';
+        const view = new URLSearchParams(location.search).get('view');
+        if (view === 'spotify' || view === 'history') ui.browserView = view;
+        if (new URLSearchParams(location.search).get('settings') === 'recording') ui.openSettings('recording');
       }
     })();
     cleanups.push(installShortcuts(() => lib?.focusSearch()), ui.watchViewport());

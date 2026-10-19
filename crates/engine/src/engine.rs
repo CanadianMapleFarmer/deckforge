@@ -10,6 +10,7 @@ use crate::anchors::BarMap;
 use crate::command::{Command, LoadRequest};
 use crate::deck::{Deck, MAX_BLOCK};
 use crate::mixer::Mixer;
+use crate::record::{RecordTap, RecordTapSlot};
 use crate::secondary::{SecondarySource, SecondaryTap};
 use crate::snapshot::EngineSnapshot;
 
@@ -66,6 +67,8 @@ pub enum Garbage {
     Track(SharedTrack),
     Request(Box<LoadRequest>),
     Phrases(Box<[f64]>),
+    RecordTap(Box<RecordTap>),
+    RecordSlot(RecordTapSlot),
 }
 
 pub struct RtEngine {
@@ -82,6 +85,8 @@ pub struct RtEngine {
     frames_processed: u64,
     load: f32,
     tap: Option<SecondaryTap>,
+    record: Option<Box<RecordTap>>,
+    clock_secs: f64,
     pending_loads: [Option<Box<LoadRequest>>; DECK_COUNT],
     held: [VecDeque<Command>; DECK_COUNT],
     device_latency: f64,
@@ -114,6 +119,8 @@ pub fn create_engine(sample_rate: u32) -> (EngineHandle, RtEngine) {
         frames_processed: 0,
         load: 0.0,
         tap: None,
+        record: None,
+        clock_secs: 0.0,
         pending_loads: [None, None],
         held: std::array::from_fn(|_| VecDeque::with_capacity(HELD_COMMANDS)),
         device_latency: 0.0,
@@ -181,6 +188,15 @@ impl RtEngine {
     /// Installs or removes the secondary-output tap; returns the previous tap so the caller drops it off the audio thread.
     pub fn set_secondary_tap(&mut self, tap: Option<SecondaryTap>) -> Option<SecondaryTap> {
         std::mem::replace(&mut self.tap, tap)
+    }
+
+    fn swap_record_tap(&mut self, slot: RecordTapSlot) {
+        if let Some(tap) = slot.take()
+            && let Some(old) = std::mem::replace(&mut self.record, tap)
+        {
+            self.release(Garbage::RecordTap(old));
+        }
+        self.release(Garbage::RecordSlot(slot));
     }
 
     fn release(&mut self, item: Garbage) {
@@ -299,6 +315,7 @@ impl RtEngine {
             Command::CrossfaderCurve(c) => self.mixer.curve = c,
             Command::EqCurve(c) => self.mixer.set_eq_curve(c),
             Command::MasterLevel(v) => self.mixer.set_level(v),
+            Command::SetRecordTap(slot) => self.swap_record_tap(slot),
             Command::HeadphoneMix(v) => self.mixer.set_headphone_mix(v),
             Command::HeadphoneLevel(v) => self.mixer.set_headphone_level(v),
             Command::Quantize(on) => self.quantize = on,
@@ -526,6 +543,9 @@ impl RtEngine {
         self.update_fx_transport(total);
 
         output.fill(0.0);
+        if let Some(rec) = &mut self.record {
+            rec.begin_block(self.clock_secs, self.sample_rate as u32);
+        }
         let mut offset = 0;
         while offset < total {
             let n = (total - offset).min(MAX_BLOCK);
@@ -539,6 +559,7 @@ impl RtEngine {
             }
         }
         self.frames_processed += total as u64;
+        self.clock_secs += total as f64 / self.sample_rate as f64;
         self.output_latency = self.device_latency + total as f64 / self.sample_rate as f64;
         if let Some(tap) = &mut self.tap {
             tap.end_block(total, self.sample_rate as u32);
@@ -566,6 +587,11 @@ impl RtEngine {
         let m = &self.mixer;
         let r = self.routing;
         let tap_source = self.tap.as_ref().map(SecondaryTap::source);
+        if let Some(rec) = &mut self.record {
+            for i in 0..n {
+                rec.push([m.rec_l[i], m.rec_r[i]]);
+            }
+        }
         for i in 0..n {
             let g = self.output_fade.next();
             if let (Some(tap), Some(source)) = (&mut self.tap, tap_source) {
@@ -607,6 +633,7 @@ impl RtEngine {
         snap.master_deck = master.map(|m| m as u8);
         snap.sample_rate = self.sample_rate as u32;
         snap.frames_processed = self.frames_processed;
+        snap.clock_secs = self.clock_secs;
         snap.output_latency_secs = self.output_latency;
         snap.callback_load = self.load;
         snap.cue_available = self.routing.cue_available();

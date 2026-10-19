@@ -1,6 +1,8 @@
 mod analysis;
 mod commands;
+mod history;
 mod native_view;
+mod recording;
 pub mod spotify;
 mod state;
 
@@ -98,6 +100,31 @@ fn restore_secondary(library: &Library, audio: &AudioManager) {
     }
 }
 
+fn publish_recording(app: &AppHandle, state: &AppState) {
+    let Some(status) = recording::try_status(state) else { return };
+    if status.as_ref().is_some_and(|s| s.finished) {
+        log::warn!("recording stopped by the writer: {}", status.as_ref().and_then(|s| s.warning.clone()).unwrap_or_default());
+        let app = app.clone();
+        let spawned = thread::Builder::new().name("deckforge-recording-close".into()).spawn(move || {
+            if let Err(e) = recording::stop(&app.state::<AppState>()) {
+                log::warn!("closing the recording failed: {e}");
+            }
+            commands::history_changed(&app);
+        });
+        if let Err(e) = spawned {
+            log::warn!("could not close the recording in the background: {e}");
+        }
+    }
+    let _ = app.emit("recording://status", status);
+}
+
+fn shut_down_history(state: &AppState) {
+    if let Err(e) = recording::stop(state) {
+        log::warn!("closing the recording on exit failed: {e}");
+    }
+    state.history.lock().end(state.engine.snapshot().clock_secs, &state.library);
+}
+
 fn spawn_state_pump(app: AppHandle) {
     thread::Builder::new()
         .name("deckforge-state-pump".into())
@@ -112,6 +139,9 @@ fn spawn_state_pump(app: AppHandle) {
                 let state = app.state::<AppState>();
                 let snapshot = state.engine.snapshot();
                 let poll = native_view::publish(&app, &snapshot, &mut native);
+                if state.history.lock().observe(&snapshot, &state.library) {
+                    commands::history_changed(&app);
+                }
                 if Instant::now() >= next_ui {
                     next_ui = (next_ui + STATE_INTERVAL).max(Instant::now());
                     let _ = app.emit("engine://state", snapshot);
@@ -130,6 +160,7 @@ fn spawn_state_pump(app: AppHandle) {
                         }
                     }
                     follow_flx4(&state, &mut flx4_present);
+                    publish_recording(&app, &state);
                     let _ = app.emit("controller://status", controller);
                     let _ = app.emit("audio://status", state.audio.status());
                 }
@@ -148,6 +179,15 @@ pub fn run() {
             let dir = data_dir();
             log::info!("data directory: {}", dir.display());
             let library = Arc::new(Library::open(&dir.join("library.sqlite"))?);
+            if let Ok(n) = library.close_open_sets()
+                && n > 0
+            {
+                log::info!("closed {n} set(s) left open by the previous run");
+            }
+            let recovered = recording::recover(&library);
+            if recovered > 0 {
+                log::info!("finished {recovered} recording(s) left open by the previous run");
+            }
             let (handle, rt) = create_engine(ENGINE_RATE);
             let engine = Arc::new(handle);
             if let Some(hw) = library.setting::<bool>("audio.hardwarePhones") {
@@ -185,7 +225,7 @@ pub fn run() {
                 analysis.enqueue(id);
             }
             app.manage(spotify::SpotifyState::new(&library)?);
-            app.manage(AppState { engine, audio, library, controller, analysis, loaded });
+            app.manage(AppState { engine, audio, library, controller, analysis, loaded, history: Mutex::default(), recording: Mutex::new(None) });
             spawn_state_pump(app.handle().clone());
             native_view::setup(app);
             Ok(())
@@ -237,6 +277,21 @@ pub fn run() {
             spotify::spotify_playlists,
             spotify::spotify_playlist_tracks,
             spotify::spotify_import_playlist,
+            commands::history_sets,
+            commands::history_set,
+            commands::history_rename,
+            commands::history_delete,
+            commands::history_remove_entry,
+            commands::history_tracklist,
+            commands::history_export,
+            commands::history_to_playlist,
+            commands::history_rewrite_recording_files,
+            commands::recording_start,
+            commands::recording_stop,
+            commands::recording_status,
+            commands::recording_settings,
+            commands::recording_set_settings,
+            commands::open_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building deckforge")
@@ -245,6 +300,7 @@ pub fn run() {
                 && let Some(state) = app.try_state::<AppState>()
             {
                 commands::persist_cues(&state);
+                shut_down_history(&state);
                 state.controller.shutdown();
                 state.audio.close();
             }

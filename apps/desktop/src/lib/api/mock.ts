@@ -8,7 +8,7 @@ import {
 import type {
   ActiveOutput, AnalysisProgress, AnalysisState, BeatFxKind, BeatFxSnapshot, ChannelSnapshot, ControllerAppAction, ControllerStatus,
   DeckSnapshot, EngineSnapshot, FxControlState, FxHudControl, FxKnobTarget, MidiLogEntry, PadMode, OutputDeviceInfo, OutputRequest, OutputStatus, Phrase, PhraseKind, Playlist,
-  Routing, SecondaryOutputRequest, SecondaryOutputStatus, SpotifyPlaylist, SpotifyStatus, SpotifyTrack, TempoRange, TrackSummary, UiCommand, Waveform,
+  RecorderStatus, RecordingSettings, Routing, SecondaryOutputRequest, SecondaryOutputStatus, SetDetail, SetEntry, SetSummary, SpotifyPlaylist, SpotifyStatus, SpotifyTrack, TempoRange, TrackSummary, UiCommand, Waveform,
 } from './types';
 
 type Handler = (payload: unknown) => void;
@@ -192,7 +192,7 @@ const state: EngineSnapshot = {
     crossfader: 0.5, curve: 'equal-power', eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.6, meterL: 0, meterR: 0,
     cueMeterL: 0, cueMeterR: 0, clipping: false, limiting: false, hardwarePhones: true,
   },
-  quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, outputLatencySecs: 0.01, callbackLoad: 0.1, cueAvailable: true,
+  quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, clockSecs: 0, outputLatencySecs: 0.01, callbackLoad: 0.1, cueAvailable: true,
   beatFx: {
     kind: 'echo', target: 'master', beats: 1, percent: 50, level: 0.5, enabled: false, bpm: 120, bands: { low: false, mid: true, high: true },
     params: [42, 50, 0, 0, 0, 0, 0, 0], held: false, ascendProgress: null, ascendBars: null, ascendLandingBar: null,
@@ -464,6 +464,7 @@ function tick() {
     }
   });
   state.framesProcessed += Math.round(dt * state.sampleRate);
+  state.clockSecs += dt;
   state.callbackLoad = 0.14 + 0.05 * Math.sin(now / 900) + 0.02 * Math.random();
 
   let mL = 0, mR = 0;
@@ -912,6 +913,64 @@ function spotifyTracks(playlistId: string): SpotifyTrack[] {
   return out;
 }
 
+const HOUR = 3_600_000;
+const mockNow = Date.now();
+function mockEntry(id: number, t: MockTrack | undefined, audible: number, took: number | null, teased = false): SetEntry {
+  return {
+    id, trackId: t?.id ?? null, title: t?.title ?? 'Unknown', artist: t?.artist ?? '', path: t?.path ?? '',
+    key: t?.key ?? null, bpm: t?.bpm ?? null, audibleSecs: audible, tookOverSecs: took, teased,
+  };
+}
+const mockSets: SetDetail[] = [
+  {
+    summary: { id: 3, name: '', startedAt: mockNow - 47 * 60_000, endedAt: null, durationSecs: 47 * 60, trackCount: 5, hasRecording: false, live: true },
+    entries: [
+      mockEntry(31, tracks[2], 0, 0), mockEntry(32, tracks[3], 302, 341), mockEntry(33, tracks[4], 690, 702),
+      mockEntry(34, tracks[5], 1001, null, true), mockEntry(35, tracks[6], 1260, 1318), mockEntry(36, tracks[0], 2610, 2671), mockEntry(37, tracks[1], 2790, null),
+    ],
+    recordings: [],
+  },
+  {
+    summary: { id: 2, name: 'Friday warm-up', startedAt: mockNow - 26 * HOUR, endedAt: mockNow - 26 * HOUR + 5_412_000, durationSecs: 5412, trackCount: 5, hasRecording: true, live: false },
+    entries: [
+      mockEntry(21, tracks[7], 0, 0), mockEntry(22, tracks[8], 371, 404), mockEntry(23, tracks[9], 812, 845),
+      mockEntry(24, tracks[10], 1203, 1252), mockEntry(25, tracks[3], 1730, null, true), mockEntry(26, tracks[11], 2480, 2512),
+    ],
+    recordings: [{ id: 1, path: '/Music/deckforge Recordings/2026-10-18 20.14.wav', startedSecs: 12, stoppedSecs: 5398, format: 'wav' }],
+  },
+  {
+    summary: { id: 1, name: '', startedAt: mockNow - 8 * 24 * HOUR, endedAt: mockNow - 8 * 24 * HOUR + 1_985_000, durationSecs: 1985, trackCount: 3, hasRecording: false, live: false },
+    entries: [mockEntry(11, tracks[1], 0, 0), mockEntry(12, tracks[4], 520, 561), mockEntry(13, tracks[0], 1180, 1214)],
+    recordings: [],
+  },
+];
+function mockSetName(s: SetSummary): SetSummary {
+  if (s.name) return s;
+  const d = new Date(s.startedAt);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return { ...s, name: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` };
+}
+function mockTracklist(d: SetDetail): string {
+  return d.entries.filter((e) => e.tookOverSecs !== null && !e.teased)
+    .map((e) => `${formatClock(e.tookOverSecs!)} ${e.artist ? `${e.artist} – ` : ''}${e.title}\n`).join('');
+}
+function formatClock(secs: number): string {
+  const t = Math.max(0, Math.floor(secs));
+  const p = (n: number) => String(n).padStart(2, '0');
+  return t >= 3600 ? `${Math.floor(t / 3600)}:${p(Math.floor(t / 60) % 60)}:${p(t % 60)}` : `${p(Math.floor(t / 60))}:${p(t % 60)}`;
+}
+let mockRecording: { started: number; status: RecorderStatus } | null = null;
+let mockRecordingSettings: RecordingSettings = {
+  folder: '/Users/preview/Music/deckforge Recordings', format: 'wav', bits: 24, sampleRate: 48000, markers: { csv: false, cue: true, fcpXml: false },
+};
+function mockRecorderStatus(): RecorderStatus | null {
+  if (!mockRecording) return null;
+  const elapsed = (Date.now() - mockRecording.started) / 1000;
+  const bps = mockRecordingSettings.sampleRate * 2 * (mockRecordingSettings.bits / 8);
+  return { ...mockRecording.status, elapsedSecs: elapsed, bytes: Math.round(80 + elapsed * bps) };
+}
+setInterval(() => { if (mockRecording) emit(EVENTS.recordingStatus, mockRecorderStatus()); }, 1000);
+
 export const mockApi: typeof RealApi = {
   async engine(cmd) { start(); engineCommand(cmd); },
   async snapshot() { start(); return structuredClone(state); },
@@ -965,6 +1024,53 @@ export const mockApi: typeof RealApi = {
     const t = tracks.find((x) => x.id === trackId);
     return t ? artworkFor(t) : null;
   },
+  async historySets() { return mockSets.map((d) => mockSetName(structuredClone(d.summary))); },
+  async historySet(id) {
+    const d = mockSets.find((x) => x.summary.id === id);
+    if (!d) throw 'set not found';
+    return { ...structuredClone(d), summary: mockSetName(structuredClone(d.summary)) };
+  },
+  async historyRename(id, name) { const d = mockSets.find((x) => x.summary.id === id); if (d) d.summary.name = name; emit(EVENTS.historyChanged, null); },
+  async historyDelete(id) {
+    if (mockRecording && id === 3) throw 'stop the recording before deleting its set';
+    const i = mockSets.findIndex((x) => x.summary.id === id);
+    if (i >= 0) mockSets.splice(i, 1);
+    emit(EVENTS.historyChanged, null);
+  },
+  async historyRemoveEntry(entryId) {
+    for (const d of mockSets) d.entries = d.entries.filter((e) => e.id !== entryId);
+    emit(EVENTS.historyChanged, null);
+  },
+  async historyTracklist(id) { const d = mockSets.find((x) => x.summary.id === id); return d ? mockTracklist(d) : ''; },
+  async historyExport() {},
+  async historyToPlaylist(id) {
+    const d = mockSets.find((x) => x.summary.id === id)!;
+    const p = { id: nextPlaylistId++, name: mockSetName(d.summary).name, trackCount: 0, parentId: null, isFolder: false, ids: d.entries.filter((e) => !e.teased && e.trackId !== null).map((e) => e.trackId!) };
+    playlists.push(p);
+    emit(EVENTS.libraryChanged, null);
+    return p.id;
+  },
+  async historyRewriteRecordingFiles(id) { return mockSets.find((x) => x.summary.id === id)?.recordings.length ?? 0; },
+  async recordingStart() {
+    if (!mockRecording) {
+      const live = mockSets.find((d) => d.summary.live);
+      if (live) live.summary.hasRecording = true;
+      mockRecording = { started: Date.now(), status: { path: `${mockRecordingSettings.folder}/preview.${mockRecordingSettings.format}`, elapsedSecs: 0, bytes: 80, droppedSecs: 0, warning: null, finished: false } };
+      emit(EVENTS.historyChanged, null);
+    }
+    return mockRecorderStatus()!;
+  },
+  async recordingStop() {
+    const path = mockRecording?.status.path ?? null;
+    mockRecording = null;
+    emit(EVENTS.recordingStatus, null);
+    emit(EVENTS.historyChanged, null);
+    return path;
+  },
+  async recordingStatus() { return mockRecorderStatus(); },
+  async recordingSettings() { return structuredClone(mockRecordingSettings); },
+  async recordingSetSettings(settings) { mockRecordingSettings = structuredClone(settings); return structuredClone(settings); },
+  async openPath() {},
   async spotifyStatus() { return structuredClone(spotifyState); },
   async spotifySetClientId(clientId) {
     spotifyState.clientId = clientId.trim() || null;
@@ -1078,6 +1184,7 @@ queueMicrotask(() => {
     Object.assign(state.beatFx, { enabled: true, kind: 'pingPong', beats: 0.5, level: 0.62, target: 'master' });
   }
   fxScene(scene.get('fx3'));
+  if (scene.get('rec') === 'on') void mockApi.recordingStart().then(() => { if (mockRecording) mockRecording.started -= 3723_000; });
   if (scene.get('spotify') === 'connected') {
     spotifyState.clientId = 'preview-client-id';
     spotifyState.connected = true;

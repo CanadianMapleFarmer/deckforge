@@ -526,3 +526,34 @@ fn fx_control_state_matches_types_ts() {
     assert_eq!(v["knobTarget"], "param");
     assert_eq!(v["hud"]["control"], "smartPreset");
 }
+
+#[test]
+fn history_and_recording_types_match_types_ts() {
+    use deckforge_library::history::{SetDetail, SetEntry, SetRecording, SetSummary};
+    use deckforge_recorder::{RecorderStatus, RecordingSettings};
+    let summary = SetSummary { id: 1, name: "Friday".into(), started_at: 0, ended_at: Some(1), duration_secs: 1.0, track_count: 1, has_recording: true, live: false };
+    let entry = SetEntry {
+        id: 1,
+        track_id: Some(2),
+        title: "T".into(),
+        artist: "A".into(),
+        path: "/a.mp3".into(),
+        key: Some("8A".into()),
+        bpm: Some(124.0),
+        audible_secs: 0.0,
+        took_over_secs: Some(1.0),
+        teased: false,
+    };
+    let recording = SetRecording { id: 1, path: "/r.wav".into(), started_secs: 0.0, stopped_secs: Some(1.0), format: "wav".into() };
+    let detail = serde_json::to_value(SetDetail { summary, entries: vec![entry], recordings: vec![recording] }).unwrap();
+    check("SetDetail", &detail);
+    check("SetSummary", &detail["summary"]);
+    check("SetEntry", &detail["entries"][0]);
+    check("SetRecording", &detail["recordings"][0]);
+    let settings = serde_json::to_value(RecordingSettings::default()).unwrap();
+    check("RecordingSettings", &settings);
+    check("MarkerFormats", &settings["markers"]);
+    assert_eq!(settings["format"], "wav");
+    check("RecorderStatus", &serde_json::to_value(RecorderStatus::default()).unwrap());
+    assert_eq!(serde_json::to_value(deckforge_library::history::ExportFormat::FcpXml).unwrap(), "fcpXml");
+}

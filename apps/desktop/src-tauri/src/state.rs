@@ -7,6 +7,8 @@ use deckforge_library::{Library, StoredCues};
 use parking_lot::Mutex;
 
 use crate::analysis::AnalysisQueue;
+use crate::history::HistoryService;
+use crate::recording::ActiveRecording;
 
 #[derive(Default, Clone)]
 pub struct LoadedTrack {
@@ -21,4 +23,6 @@ pub struct AppState {
     pub controller: ControllerService,
     pub analysis: AnalysisQueue,
     pub loaded: Arc<Mutex<[Option<LoadedTrack>; DECK_COUNT]>>,
+    pub history: Mutex<HistoryService>,
+    pub recording: Mutex<Option<ActiveRecording>>,
 }

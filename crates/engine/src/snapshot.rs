@@ -154,6 +154,8 @@ pub struct EngineSnapshot {
     pub master_deck: Option<u8>,
     pub sample_rate: u32,
     pub frames_processed: u64,
+    /// Seconds of audio rendered since the engine started, summed across sample-rate changes.
+    pub clock_secs: f64,
     /// Seconds from the end of the last rendered block until it is heard: device latency plus that block.
     pub output_latency_secs: f64,
     pub callback_load: f32,

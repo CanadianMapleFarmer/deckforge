@@ -20,6 +20,7 @@ deckforge-engine = { path = "crates/engine" }
 deckforge-controller = { path = "crates/controller" }
 deckforge-library = { path = "crates/library" }
 deckforge-spotify = { path = "crates/spotify" }
+deckforge-recorder = { path = "crates/recorder" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -40,6 +41,7 @@ walkdir = "2.5"
 quick-xml = "0.42"
 cc = "1"
 dirs = "7"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 hound = "3.5"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
@@ -50,6 +52,9 @@ url = "2"
 unicode-normalization = "0.1"
 keyring = "3.6"
 open = "5"
+flacenc = "0.5"
+rubato = "0.16"
+fs4 = { version = "0.13", features = ["sync"] }
 
 [profile.dev.package."*"]
 opt-level = 3
