@@ -225,6 +225,8 @@ pub struct Mixer {
     pub cue_r: Vec<f32>,
     pub phones_l: Vec<f32>,
     pub phones_r: Vec<f32>,
+    pub rec_l: Vec<f32>,
+    pub rec_r: Vec<f32>,
     master_meter: [PeakMeter; 2],
     cue_meter: [PeakMeter; 2],
     clip_hold: f32,
@@ -266,6 +268,8 @@ impl Mixer {
             cue_r: vec![0.0; MAX_BLOCK],
             phones_l: vec![0.0; MAX_BLOCK],
             phones_r: vec![0.0; MAX_BLOCK],
+            rec_l: vec![0.0; MAX_BLOCK],
+            rec_r: vec![0.0; MAX_BLOCK],
             master_meter: [PeakMeter::default(); 2],
             cue_meter: [PeakMeter::default(); 2],
             clip_hold: 0.0,
@@ -618,6 +622,8 @@ impl Mixer {
         let mut clipped = false;
         let mut limited = false;
         for i in 0..n {
+            self.rec_l[i] = soft_limit(self.master_l[i]);
+            self.rec_r[i] = soft_limit(self.master_r[i]);
             let mg = self.master.next();
             let ml = self.master_l[i] * mg;
             let mr = self.master_r[i] * mg;
