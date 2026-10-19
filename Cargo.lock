@@ -927,6 +927,7 @@ dependencies = [
 name = "deckforge-library"
 version = "0.3.0"
 dependencies = [
+ "chrono",
  "deckforge-analysis",
  "deckforge-common",
  "hound",

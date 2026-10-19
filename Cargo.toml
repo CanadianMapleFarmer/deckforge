@@ -40,6 +40,7 @@ walkdir = "2.5"
 quick-xml = "0.42"
 cc = "1"
 dirs = "7"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 hound = "3.5"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
