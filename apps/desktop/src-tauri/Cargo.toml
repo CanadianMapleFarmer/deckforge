@@ -30,6 +30,9 @@ deckforge-engine.workspace = true
 deckforge-analysis.workspace = true
 deckforge-controller.workspace = true
 deckforge-library.workspace = true
+deckforge-dsp.workspace = true
+deckforge-recorder.workspace = true
+chrono.workspace = true
 deckforge-gfx = { path = "../../../crates/gfx" }
 raw-window-handle = "0.6"
 deckforge-spotify.workspace = true

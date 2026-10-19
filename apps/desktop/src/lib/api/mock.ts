@@ -192,7 +192,7 @@ const state: EngineSnapshot = {
     crossfader: 0.5, curve: 'equal-power', eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.6, meterL: 0, meterR: 0,
     cueMeterL: 0, cueMeterR: 0, clipping: false, limiting: false, hardwarePhones: true,
   },
-  quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, outputLatencySecs: 0.01, callbackLoad: 0.1, cueAvailable: true,
+  quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, clockSecs: 0, outputLatencySecs: 0.01, callbackLoad: 0.1, cueAvailable: true,
   beatFx: {
     kind: 'echo', target: 'master', beats: 1, percent: 50, level: 0.5, enabled: false, bpm: 120, bands: { low: false, mid: true, high: true },
     params: [42, 50, 0, 0, 0, 0, 0, 0], held: false, ascendProgress: null, ascendBars: null, ascendLandingBar: null,
@@ -464,6 +464,7 @@ function tick() {
     }
   });
   state.framesProcessed += Math.round(dt * state.sampleRate);
+  state.clockSecs += dt;
   state.callbackLoad = 0.14 + 0.05 * Math.sin(now / 900) + 0.02 * Math.random();
 
   let mL = 0, mR = 0;

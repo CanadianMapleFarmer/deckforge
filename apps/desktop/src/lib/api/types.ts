@@ -76,6 +76,7 @@ export interface EngineSnapshot {
   masterDeck: number | null;
   sampleRate: number;
   framesProcessed: number;
+  clockSecs: number; // seconds rendered since the engine started, across sample-rate changes
   outputLatencySecs: number; // from the end of the last rendered block until it is heard
   callbackLoad: number; // 0..1 fraction of audio callback budget used (peak, decaying)
   cueAvailable: boolean; // false when output device has no separate headphone pair
@@ -618,4 +619,68 @@ export interface SpotifyImportResult {
   playlist: Playlist;
   matched: number;
   unmatched: number;
+}
+
+export interface SetSummary {
+  id: number;
+  name: string;
+  startedAt: number; // Unix milliseconds
+  endedAt: number | null;
+  durationSecs: number;
+  trackCount: number;
+  hasRecording: boolean;
+  live: boolean;
+}
+
+export interface SetEntry {
+  id: number;
+  trackId: number | null;
+  title: string;
+  artist: string;
+  path: string;
+  key: string | null;
+  bpm: number | null;
+  audibleSecs: number; // from the set start
+  tookOverSecs: number | null;
+  teased: boolean;
+}
+
+export interface SetRecording {
+  id: number;
+  path: string;
+  startedSecs: number; // from the set start
+  stoppedSecs: number | null;
+  format: string;
+}
+
+export interface SetDetail {
+  summary: SetSummary;
+  entries: SetEntry[];
+  recordings: SetRecording[];
+}
+
+export type AudioFormat = 'wav' | 'flac';
+export type ExportFormat = 'text' | 'csv' | 'cue' | 'fcpXml';
+
+export interface MarkerFormats {
+  csv: boolean;
+  cue: boolean;
+  fcpXml: boolean;
+}
+
+export interface RecordingSettings {
+  folder: string;
+  format: AudioFormat;
+  bits: 16 | 24;
+  sampleRate: 44100 | 48000;
+  markers: MarkerFormats;
+}
+
+export interface RecorderStatus {
+  path: string;
+  elapsedSecs: number;
+  bytes: number;
+  droppedSecs: number;
+  warning: string | null;
+  finished: boolean;
 }

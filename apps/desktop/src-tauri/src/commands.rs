@@ -9,11 +9,14 @@ use deckforge_engine::{
     list_output_devices, ActiveOutput, Command, EngineSnapshot, JogMode, LoadRequest, MixerParam, OutputDeviceInfo,
     OutputRequest, OutputStatus, Routing, SecondaryOutputRequest, JOG_TICKS_PER_REV,
 };
+use deckforge_library::history::{export_items, render, ExportFormat, SetDetail, SetSummary};
 use deckforge_library::{ImportResult, Playlist, PlaylistImportReport, StoredCues, TrackSummary};
+use deckforge_recorder::{RecorderStatus, RecordingSettings};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, State};
 
+use crate::recording;
 use crate::state::{AppState, LoadedTrack};
 
 pub type CmdResult<T> = Result<T, String>;
@@ -515,6 +518,120 @@ pub fn persist_cues(state: &AppState) {
             }
         }
     }
+}
+
+pub fn history_changed(app: &AppHandle) {
+    let _ = app.emit("history://changed", ());
+}
+
+#[tauri::command]
+pub fn history_sets(state: State<'_, AppState>) -> CmdResult<Vec<SetSummary>> {
+    state.library.sets().map_err(err)
+}
+
+#[tauri::command]
+pub fn history_set(state: State<'_, AppState>, id: i64) -> CmdResult<SetDetail> {
+    state.library.set_detail(id).map_err(err)
+}
+
+#[tauri::command]
+pub fn history_rename(app: AppHandle, state: State<'_, AppState>, id: i64, name: String) -> CmdResult<()> {
+    state.library.rename_set(id, &name).map_err(err)?;
+    history_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn history_delete(app: AppHandle, state: State<'_, AppState>, id: i64) -> CmdResult<()> {
+    if state.recording.lock().as_ref().is_some_and(|r| r.set_id() == id) {
+        return Err("stop the recording before deleting its set".into());
+    }
+    let mut history = state.history.lock();
+    if history.open_set().is_some_and(|s| s.id == id) {
+        history.end(state.engine.snapshot().clock_secs, &state.library);
+    }
+    drop(history);
+    state.library.delete_set(id).map_err(err)?;
+    history_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn history_remove_entry(app: AppHandle, state: State<'_, AppState>, entry_id: i64) -> CmdResult<()> {
+    state.library.remove_set_entry(entry_id).map_err(err)?;
+    history_changed(&app);
+    Ok(())
+}
+
+fn set_export(library: &deckforge_library::Library, id: i64, format: ExportFormat) -> CmdResult<String> {
+    let detail = library.set_detail(id).map_err(err)?;
+    let items = export_items(&detail.entries, 0.0, f64::INFINITY);
+    let audio = detail.recordings.last().and_then(|r| std::path::Path::new(&r.path).file_name().map(|n| n.to_string_lossy().into_owned()));
+    Ok(render(format, &items, &detail.summary.name, audio.as_deref(), 25))
+}
+
+#[tauri::command]
+pub fn history_tracklist(state: State<'_, AppState>, id: i64) -> CmdResult<String> {
+    set_export(&state.library, id, ExportFormat::Text)
+}
+
+#[tauri::command]
+pub fn history_export(state: State<'_, AppState>, id: i64, format: ExportFormat, path: String) -> CmdResult<()> {
+    std::fs::write(path, set_export(&state.library, id, format)?).map_err(err)
+}
+
+#[tauri::command]
+pub fn history_to_playlist(app: AppHandle, state: State<'_, AppState>, id: i64) -> CmdResult<i64> {
+    let playlist = state.library.set_to_playlist(id).map_err(err)?;
+    let _ = app.emit("library://changed", ());
+    Ok(playlist)
+}
+
+#[tauri::command]
+pub fn history_rewrite_recording_files(state: State<'_, AppState>, id: i64) -> CmdResult<usize> {
+    recording::rewrite_files(&state.library, id)
+}
+
+#[tauri::command]
+pub async fn recording_start(app: AppHandle, state: State<'_, AppState>) -> CmdResult<RecorderStatus> {
+    let status = recording::start(&state)?;
+    history_changed(&app);
+    let _ = app.emit("recording://status", Some(&status));
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn recording_stop(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Option<String>> {
+    let path = recording::stop(&state)?;
+    history_changed(&app);
+    let _ = app.emit("recording://status", None::<RecorderStatus>);
+    Ok(path.map(|p| p.display().to_string()))
+}
+
+#[tauri::command]
+pub fn recording_status(state: State<'_, AppState>) -> Option<RecorderStatus> {
+    recording::status(&state)
+}
+
+#[tauri::command]
+pub fn recording_settings(state: State<'_, AppState>) -> RecordingSettings {
+    recording::settings(&state.library)
+}
+
+#[tauri::command]
+pub fn recording_set_settings(state: State<'_, AppState>, settings: RecordingSettings) -> CmdResult<RecordingSettings> {
+    let settings = settings.sanitized();
+    state.library.set_setting(recording::SETTING, &settings).map_err(err)?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn open_path(path: String) -> CmdResult<()> {
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        return Err(format!("{} no longer exists", path.display()));
+    }
+    open::that_detached(&path).map_err(err)
 }
 
 #[cfg(test)]
