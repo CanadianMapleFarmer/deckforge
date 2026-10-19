@@ -1,0 +1,22 @@
+[package]
+name = "deckforge-recorder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+deckforge-engine.workspace = true
+rtrb.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+flacenc.workspace = true
+rubato.workspace = true
+fs4.workspace = true
+
+[dev-dependencies]
+hound.workspace = true
+symphonia.workspace = true

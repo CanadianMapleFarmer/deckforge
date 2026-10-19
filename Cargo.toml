@@ -20,6 +20,7 @@ deckforge-engine = { path = "crates/engine" }
 deckforge-controller = { path = "crates/controller" }
 deckforge-library = { path = "crates/library" }
 deckforge-spotify = { path = "crates/spotify" }
+deckforge-recorder = { path = "crates/recorder" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -51,6 +52,9 @@ url = "2"
 unicode-normalization = "0.1"
 keyring = "3.6"
 open = "5"
+flacenc = "0.5"
+rubato = "0.16"
+fs4 = { version = "0.13", features = ["sync"] }
 
 [profile.dev.package."*"]
 opt-level = 3
