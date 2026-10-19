@@ -4,6 +4,8 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
 ### Added
 - Set history: every set is logged automatically, with the time each track took over from the previous one and when it was first mixed in. Teased tracks are kept but left out of the tracklist. Browse sets by date in **History**, copy the tracklist, export it as CSV, CUE or video-editor markers, or turn a set into a playlist.
 - Set recording: the **Rec** button records the mix, taken before the master volume, to WAV or FLAC in the folder you choose. The tracklist and any marker files you turn on are written beside it when you stop, timed from the start of the recording.
@@ -44,7 +46,8 @@ First public release.
 - Full Pioneer DJ DDJ-FLX4 mapping with LED feedback.
 - macOS, Windows and Linux builds.
 
-[Unreleased]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/CanadianMapleFarmer/deckforge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/CanadianMapleFarmer/deckforge/releases/tag/v0.1.0
