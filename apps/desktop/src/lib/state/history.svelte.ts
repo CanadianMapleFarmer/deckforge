@@ -124,6 +124,7 @@ class HistoryStore {
         if (path) toast.ok(`Recording saved to ${folderOf(path)}`);
       } else {
         this.recording = await be.backend.recordingStart();
+        if (this.recording.warning) toast.info(this.recording.warning);
       }
     } catch (e) {
       toast.error(errorMessage(e));

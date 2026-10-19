@@ -89,6 +89,9 @@ pub fn stop(state: &AppState) -> Result<Option<PathBuf>, String> {
     wait_for(TAP_WAIT, || state.engine.snapshot().frames_processed > before);
     state.history.lock().set_recording(false);
     let result = active.recorder.stop().map_err(|e| e.to_string())?;
+    if let Some(e) = &result.error {
+        log::warn!("the recording writer stopped early: {e}");
+    }
     let stopped = active.started_secs + result.duration_secs;
     state.library.finish_recording(active.recording_id, stopped).map_err(|e| e.to_string())?;
     let detail = state.library.set_detail(active.set_id).map_err(|e| e.to_string())?;
@@ -115,6 +118,30 @@ pub fn write_side_files(detail: &SetDetail, audio: &Path, origin: f64, end: f64,
         written.push(path);
     }
     Ok(written)
+}
+
+/// Finishes recordings a crash left open, timed from what their file headers declare, and writes their tracklists.
+pub fn recover(library: &Library) -> usize {
+    let settings = settings(library);
+    let mut n = 0;
+    for (set_id, r) in library.open_recordings().unwrap_or_default() {
+        let audio = Path::new(&r.path);
+        let Some(duration) = deckforge_recorder::recorded_duration(audio) else { continue };
+        let stopped = r.started_secs + duration;
+        if library.finish_recording(r.id, stopped).is_err() {
+            continue;
+        }
+        n += 1;
+        match library.set_detail(set_id) {
+            Ok(detail) => {
+                if let Err(e) = write_side_files(&detail, audio, r.started_secs, stopped, &settings) {
+                    log::warn!("writing the tracklist beside {} failed: {e}", audio.display());
+                }
+            }
+            Err(e) => log::warn!("recovering {}: {e}", audio.display()),
+        }
+    }
+    n
 }
 
 /// Rewrites the files beside every finished recording of a set from its current entries.
@@ -157,6 +184,28 @@ mod tests {
         assert_eq!(written, vec![dir.join("2026-10-19 21.05.txt"), dir.join("2026-10-19 21.05.cue")]);
         assert_eq!(std::fs::read_to_string(&written[0]).unwrap(), "00:00 A – One\n04:12 B – Two\n");
         assert!(std::fs::read_to_string(&written[1]).unwrap().contains("FILE \"2026-10-19 21.05.wav\" WAVE"));
+    }
+
+    #[test]
+    fn a_recording_left_open_by_a_crash_gets_its_tracklist_on_recovery() {
+        let dir = std::env::temp_dir().join(format!("deckforge-recover-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = Library::open_in_memory().unwrap();
+        let set = lib.begin_set(0, 0.0).unwrap();
+        let entry = lib.add_set_entry(set, 99, 0.0).unwrap();
+        lib.mark_took_over(entry, 0.0).unwrap();
+        let audio = dir.join("2026-10-19 22.00.wav");
+        let mut w = deckforge_recorder::WavWriter::create(&audio, 48_000, 24).unwrap();
+        w.write(&vec![[0.0; 2]; 48_000 * 3]).unwrap();
+        w.checkpoint().unwrap();
+        drop(w);
+        let id = lib.add_recording(set, &audio.display().to_string(), 10.0, "wav").unwrap();
+        lib.close_open_sets().unwrap();
+        assert_eq!(recover(&lib), 1);
+        let r = lib.set_detail(set).unwrap().recordings.into_iter().find(|r| r.id == id).unwrap();
+        assert_eq!(r.stopped_secs, Some(13.0));
+        assert!(audio.with_extension("txt").exists());
+        assert_eq!(recover(&lib), 0, "a recovered recording is not touched again");
     }
 
     #[test]

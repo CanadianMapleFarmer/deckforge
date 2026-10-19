@@ -205,6 +205,16 @@ impl Library {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Recordings never stopped, as left by a crash: `(set id, recording)`.
+    pub fn open_recordings(&self) -> Result<Vec<(i64, SetRecording)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT set_id, id, path, started_secs, format FROM recordings WHERE stopped_secs IS NULL ORDER BY id")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, SetRecording { id: r.get(1)?, path: r.get(2)?, started_secs: r.get(3)?, stopped_secs: None, format: r.get(4)? })))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     pub fn finish_recording(&self, id: i64, stopped_secs: f64) -> Result<()> {
         self.conn.lock().execute("UPDATE recordings SET stopped_secs = ?2 WHERE id = ?1", params![id, stopped_secs])?;
         Ok(())

@@ -33,11 +33,25 @@ pub struct RecordingResult {
     pub path: PathBuf,
     pub start_clock: f64,
     pub duration_secs: f64,
+    /// Why the writer stopped early; the file is still playable up to its last checkpoint.
+    pub error: Option<RecordError>,
+}
+
+pub(crate) struct Finished {
+    pub duration_secs: f64,
+    pub error: Option<RecordError>,
 }
 
 enum Sink {
     Wav(WavWriter),
     Flac(Box<FlacWriter>),
+    #[cfg(test)]
+    Failing,
+}
+
+#[cfg(test)]
+fn disk_full() -> std::io::Error {
+    std::io::Error::other("disk full")
 }
 
 impl Sink {
@@ -45,6 +59,8 @@ impl Sink {
         match self {
             Sink::Wav(w) => w.write(frames),
             Sink::Flac(w) => w.write(frames),
+            #[cfg(test)]
+            Sink::Failing => Err(disk_full()),
         }
     }
 
@@ -52,6 +68,8 @@ impl Sink {
         match self {
             Sink::Wav(w) => w.checkpoint(),
             Sink::Flac(w) => w.checkpoint(),
+            #[cfg(test)]
+            Sink::Failing => Err(disk_full()),
         }
     }
 
@@ -59,6 +77,8 @@ impl Sink {
         match self {
             Sink::Wav(w) => w.bytes(),
             Sink::Flac(w) => w.bytes(),
+            #[cfg(test)]
+            Sink::Failing => 0,
         }
     }
 
@@ -66,6 +86,8 @@ impl Sink {
         match self {
             Sink::Wav(w) => w.finish(),
             Sink::Flac(w) => w.finish(),
+            #[cfg(test)]
+            Sink::Failing => Err(disk_full()),
         }
     }
 }
@@ -154,9 +176,34 @@ struct Worker {
 }
 
 impl Worker {
-    fn run(mut self) -> Result<f64, RecordError> {
-        let mut last = Instant::now();
+    fn run(mut self) -> Finished {
         let mut warning = None;
+        let mut error = self.drive(&mut warning).and_then(|()| self.flush_converter()).err();
+        let duration_secs = self.written as f64 / self.target_rate as f64;
+        let stopped_itself = warning.is_some() || error.is_some();
+        let bytes = self.sink.bytes();
+        let status = self.status.clone();
+        let rate = self.status_rate();
+        let dropped = self.shared.dropped();
+        if let Err(e) = self.sink.finish() {
+            error.get_or_insert(e.into());
+        }
+        if let Some(e) = &error {
+            warning = Some(format!("Recording stopped: {e}. The file is kept up to the last few seconds."));
+        }
+        let mut s = status.lock().unwrap_or_else(|p| p.into_inner());
+        s.elapsed_secs = duration_secs;
+        s.bytes = bytes;
+        s.dropped_secs = dropped as f64 / rate as f64;
+        if warning.is_some() {
+            s.warning = warning;
+        }
+        s.finished |= stopped_itself;
+        Finished { duration_secs, error }
+    }
+
+    fn drive(&mut self, warning: &mut Option<String>) -> Result<(), RecordError> {
+        let mut last = Instant::now();
         loop {
             let stopping = self.stop.load(Ordering::Acquire);
             let got = self.pump()?;
@@ -164,30 +211,32 @@ impl Worker {
                 last = Instant::now();
                 self.sink.checkpoint()?;
                 if fs4::available_space(&self.folder).is_ok_and(|free| free < LOW_SPACE_BYTES) {
-                    warning = Some("The disk is almost full, so the recording was stopped.".to_owned());
-                    self.publish(warning.clone(), true);
-                    break;
+                    *warning = Some("The disk is almost full, so the recording was stopped.".to_owned());
+                    return Ok(());
                 }
                 self.publish(None, false);
             }
             if stopping && got == 0 {
-                break;
+                return Ok(());
             }
             if got == 0 {
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
+    }
+
+    fn flush_converter(&mut self) -> Result<(), RecordError> {
         if let Some(c) = self.converter.take() {
             self.converted.clear();
             c.flush(&mut self.converted);
             self.sink.write(&self.converted)?;
             self.written += self.converted.len() as u64;
         }
-        let duration = self.written as f64 / self.target_rate as f64;
-        let finished = warning.is_some();
-        self.publish(warning, finished);
-        self.sink.finish()?;
-        Ok(duration)
+        Ok(())
+    }
+
+    fn status_rate(&self) -> u32 {
+        if self.source_rate > 0 { self.source_rate } else { self.target_rate }
     }
 
     fn pump(&mut self) -> Result<usize, RecordError> {
@@ -244,7 +293,7 @@ impl Worker {
     }
 
     fn publish(&self, warning: Option<String>, finished: bool) {
-        let rate = if self.source_rate > 0 { self.source_rate } else { self.target_rate };
+        let rate = self.status_rate();
         let mut s = self.status.lock().unwrap_or_else(|p| p.into_inner());
         s.elapsed_secs = self.written as f64 / self.target_rate as f64;
         s.bytes = self.sink.bytes();
@@ -256,12 +305,32 @@ impl Worker {
     }
 }
 
+#[cfg(test)]
+impl Worker {
+    fn for_test(rx: rtrb::Consumer<RecordFrame>, sink: Sink, status: Arc<Mutex<RecorderStatus>>) -> Self {
+        Worker {
+            rx,
+            shared: Arc::new(RecordShared::default()),
+            sink,
+            folder: std::env::temp_dir(),
+            target_rate: 48_000,
+            source_rate: 0,
+            converter: None,
+            written: 0,
+            staged: Vec::new(),
+            converted: Vec::new(),
+            status,
+            stop: Arc::new(AtomicBool::new(true)),
+        }
+    }
+}
+
 pub struct Recorder {
     path: PathBuf,
     shared: Arc<RecordShared>,
     status: Arc<Mutex<RecorderStatus>>,
     stop: Arc<AtomicBool>,
-    worker: Option<JoinHandle<Result<f64, RecordError>>>,
+    worker: Option<JoinHandle<Finished>>,
 }
 
 fn unique_path(folder: &Path, name: &str) -> PathBuf {
@@ -274,21 +343,35 @@ fn unique_path(folder: &Path, name: &str) -> PathBuf {
 }
 
 impl Recorder {
+    /// Refuses only below the low-space floor; under an hour of space it records with a warning.
     pub fn start(settings: &RecordingSettings, rx: rtrb::Consumer<RecordFrame>, shared: Arc<RecordShared>, now_local: NaiveDateTime) -> Result<Recorder, RecordError> {
-        let settings = settings.clone().sanitized();
         std::fs::create_dir_all(&settings.folder).map_err(|e| RecordError::Folder(format!("{}: {e}", settings.folder.display())))?;
         let free = fs4::available_space(&settings.folder).map_err(|e| RecordError::Folder(e.to_string()))?;
-        if free < min_free_bytes_for_an_hour(&settings) {
-            let per_minute = (min_free_bytes_for_an_hour(&settings) / 60).max(1);
+        Self::start_with_free_space(settings, rx, shared, now_local, free)
+    }
+
+    pub(crate) fn start_with_free_space(
+        settings: &RecordingSettings,
+        rx: rtrb::Consumer<RecordFrame>,
+        shared: Arc<RecordShared>,
+        now_local: NaiveDateTime,
+        free: u64,
+    ) -> Result<Recorder, RecordError> {
+        let settings = settings.clone().sanitized();
+        std::fs::create_dir_all(&settings.folder).map_err(|e| RecordError::Folder(format!("{}: {e}", settings.folder.display())))?;
+        let per_minute = (min_free_bytes_for_an_hour(&settings) / 60).max(1);
+        if free < LOW_SPACE_BYTES {
             return Err(RecordError::DiskSpace { free_minutes: free / per_minute });
         }
+        let warning = (free < min_free_bytes_for_an_hour(&settings))
+            .then(|| format!("Only about {} minutes of disk space left for this recording.", free.saturating_sub(LOW_SPACE_BYTES) / per_minute));
         let path = unique_path(&settings.folder, &recording_file_name(now_local, settings.format));
         let folder_err = |e: std::io::Error| RecordError::Folder(format!("{}: {e}", path.display()));
         let sink = match settings.format {
             AudioFormat::Wav => Sink::Wav(WavWriter::create(&path, settings.sample_rate, settings.bits).map_err(folder_err)?),
             AudioFormat::Flac => Sink::Flac(Box::new(FlacWriter::create(&path, settings.sample_rate, settings.bits).map_err(folder_err)?)),
         };
-        let status = Arc::new(Mutex::new(RecorderStatus { path: path.display().to_string(), ..RecorderStatus::default() }));
+        let status = Arc::new(Mutex::new(RecorderStatus { path: path.display().to_string(), warning, ..RecorderStatus::default() }));
         let stop = Arc::new(AtomicBool::new(false));
         let worker = Worker {
             rx,
@@ -319,11 +402,15 @@ impl Recorder {
     /// Drains what is already queued, finalizes the file and returns where it went.
     pub fn stop(mut self) -> Result<RecordingResult, RecordError> {
         self.stop.store(true, Ordering::Release);
-        let duration = match self.worker.take().map(JoinHandle::join) {
-            Some(Ok(r)) => r?,
-            _ => return Err(RecordError::Io("the recording thread stopped unexpectedly".into())),
+        let Some(Ok(finished)) = self.worker.take().map(JoinHandle::join) else {
+            return Err(RecordError::Io("the recording thread stopped unexpectedly".into()));
         };
-        Ok(RecordingResult { path: self.path.clone(), start_clock: self.shared.start_clock().unwrap_or(0.0), duration_secs: duration })
+        Ok(RecordingResult {
+            path: self.path.clone(),
+            start_clock: self.shared.start_clock().unwrap_or(0.0),
+            duration_secs: finished.duration_secs,
+            error: finished.error,
+        })
     }
 }
 
@@ -443,5 +530,32 @@ pub(crate) mod tests {
         let b = feed(vec![RecordFrame::Rate(48_000)], &s);
         assert_ne!(a.path, b.path);
         assert!(b.path.ends_with("2026-10-19 21.05 (2).wav"));
+    }
+
+    #[test]
+    fn low_free_space_warns_but_still_records() {
+        let dir = tempdir();
+        let s = settings(dir, AudioFormat::Wav);
+        let (_tx, rx) = rtrb::RingBuffer::<RecordFrame>::new(4);
+        let r = Recorder::start_with_free_space(&s, rx, Arc::new(RecordShared::default()), now(), LOW_SPACE_BYTES * 2).unwrap();
+        assert!(r.status().warning.unwrap().contains("minutes of disk space"));
+        r.stop().unwrap();
+        let (_tx, rx) = rtrb::RingBuffer::<RecordFrame>::new(4);
+        let err = Recorder::start_with_free_space(&s, rx, Arc::new(RecordShared::default()), now(), LOW_SPACE_BYTES / 2).err().unwrap();
+        assert!(matches!(err, RecordError::DiskSpace { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn a_write_error_stops_the_recording_and_says_why() {
+        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        tx.push(RecordFrame::Rate(48_000)).unwrap();
+        tx.push(RecordFrame::Audio([0.1, 0.1])).unwrap();
+        let status = Arc::new(Mutex::new(RecorderStatus::default()));
+        let worker = Worker::for_test(rx, Sink::Failing, status.clone());
+        let finished = worker.run();
+        assert!(finished.error.is_some());
+        let s = status.lock().unwrap().clone();
+        assert!(s.finished, "the app is told to close the recording");
+        assert!(s.warning.unwrap().contains("disk full"), "the reason reaches the DJ");
     }
 }

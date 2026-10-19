@@ -103,12 +103,17 @@ fn restore_secondary(library: &Library, audio: &AudioManager) {
 fn publish_recording(app: &AppHandle, state: &AppState) {
     let Some(status) = recording::try_status(state) else { return };
     if status.as_ref().is_some_and(|s| s.finished) {
-        let warning = status.as_ref().and_then(|s| s.warning.clone());
-        if let Err(e) = recording::stop(state) {
-            log::warn!("closing the recording failed: {e}");
+        log::warn!("recording stopped by the writer: {}", status.as_ref().and_then(|s| s.warning.clone()).unwrap_or_default());
+        let app = app.clone();
+        let spawned = thread::Builder::new().name("deckforge-recording-close".into()).spawn(move || {
+            if let Err(e) = recording::stop(&app.state::<AppState>()) {
+                log::warn!("closing the recording failed: {e}");
+            }
+            commands::history_changed(&app);
+        });
+        if let Err(e) = spawned {
+            log::warn!("could not close the recording in the background: {e}");
         }
-        log::warn!("recording stopped by the writer: {}", warning.unwrap_or_default());
-        commands::history_changed(app);
     }
     let _ = app.emit("recording://status", status);
 }
@@ -178,6 +183,10 @@ pub fn run() {
                 && n > 0
             {
                 log::info!("closed {n} set(s) left open by the previous run");
+            }
+            let recovered = recording::recover(&library);
+            if recovered > 0 {
+                log::info!("finished {recovered} recording(s) left open by the previous run");
             }
             let (handle, rt) = create_engine(ENGINE_RATE);
             let engine = Arc::new(handle);

@@ -83,8 +83,21 @@ impl FlacWriter {
         self.bytes + self.pending.len() as u64 * self.bits as u64 / 8
     }
 
+    /// Flushes and rewrites STREAMINFO so a file cut off here still decodes.
     pub fn checkpoint(&mut self) -> std::io::Result<()> {
-        self.out.flush()
+        self.out.flush()?;
+        if self.context.total_samples() == 0 {
+            return Ok(());
+        }
+        let mut info = self.info.clone();
+        info.set_block_sizes(BLOCK, BLOCK).map_err(io_err)?;
+        info.set_total_samples(self.context.total_samples());
+        let header = header_bytes(&info)?;
+        let file = self.out.get_mut();
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(&header)?;
+        file.seek(SeekFrom::End(0))?;
+        Ok(())
     }
 
     pub fn finish(mut self) -> std::io::Result<()> {
@@ -129,5 +142,20 @@ mod tests {
             let expect: Vec<i32> = frames.iter().flat_map(|f| f.map(|s| (s * q).round() as i32)).collect();
             assert_eq!(crate::writer::tests::decode_i32(&path), expect);
         }
+    }
+
+    #[test]
+    fn a_flac_cut_off_mid_recording_still_decodes() {
+        let dir = tempdir();
+        let path = dir.join("crash.flac");
+        let frames = tone(20_000, 24);
+        let mut w = FlacWriter::create(&path, 48_000, 24).unwrap();
+        w.write(&frames[..12_288]).unwrap();
+        w.checkpoint().unwrap();
+        w.write(&frames[12_288..]).unwrap();
+        drop(w);
+        let samples = crate::writer::tests::decode_i32(&path);
+        assert!(samples.len() / 2 >= 12_288, "{}", samples.len() / 2);
+        assert_eq!(crate::recorded_duration(&path).map(|d| (d * 48_000.0).round() as u64), Some(12_288));
     }
 }

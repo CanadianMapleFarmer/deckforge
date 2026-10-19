@@ -99,6 +99,42 @@ pub fn recording_file_name(now_local: NaiveDateTime, format: AudioFormat) -> Str
     format!("{}.{}", now_local.format("%Y-%m-%d %H.%M"), format.extension())
 }
 
+/// Seconds of audio a WAV/RF64 or FLAC file declares in its header, as last patched by the recorder.
+pub fn recorded_duration(path: &std::path::Path) -> Option<f64> {
+    use std::io::Read;
+    let mut head = [0u8; 4096];
+    let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
+    let head = &head[..n];
+    let le32 = |o: usize| head.get(o..o + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    match head.get(..4)? {
+        b"fLaC" => {
+            let v = u64::from_be_bytes(head.get(18..26)?.try_into().ok()?);
+            let rate = v >> 44;
+            (rate > 0).then(|| (v & ((1 << 36) - 1)) as f64 / rate as f64)
+        }
+        b"RIFF" | b"RF64" => {
+            let (mut pos, mut rate, mut align, mut ds64) = (12usize, 0u32, 0u32, None);
+            while let (Some(id), Some(size)) = (head.get(pos..pos + 4), le32(pos + 4)) {
+                match id {
+                    b"ds64" => ds64 = head.get(pos + 16..pos + 24).map(|b| u64::from_le_bytes(b.try_into().unwrap())),
+                    b"fmt " => {
+                        rate = le32(pos + 12)?;
+                        align = u16::from_le_bytes(head.get(pos + 20..pos + 22)?.try_into().ok()?) as u32;
+                    }
+                    b"data" => {
+                        let bytes = if size == u32::MAX { ds64? } else { size as u64 };
+                        return (rate > 0 && align > 0).then(|| (bytes / align as u64) as f64 / rate as f64);
+                    }
+                    _ => {}
+                }
+                pos += 8 + size as usize + (size as usize & 1);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +154,18 @@ mod tests {
         assert!(s.folder.ends_with("deckforge Recordings"));
         assert_eq!(s.markers, MarkerFormats::default());
         assert_eq!(min_free_bytes_for_an_hour(&s), 48_000 * 6 * 3600);
+    }
+
+    #[test]
+    fn recorded_duration_reads_a_wav_header_patched_mid_recording() {
+        let dir = crate::wav::tests::tempdir();
+        let path = dir.join("cut.wav");
+        let mut w = WavWriter::create(&path, 44_100, 24).unwrap();
+        w.write(&crate::wav::tests::tone(44_100, 24)).unwrap();
+        w.checkpoint().unwrap();
+        w.write(&crate::wav::tests::tone(1_000, 24)).unwrap();
+        drop(w);
+        assert_eq!(recorded_duration(&path), Some(1.0));
+        assert_eq!(recorded_duration(&dir.join("missing.wav")), None);
     }
 }
