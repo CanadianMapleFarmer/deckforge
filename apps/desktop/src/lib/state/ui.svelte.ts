@@ -16,6 +16,8 @@ function save(key: string, value: unknown) {
   }
 }
 
+export type SettingsTab = 'audio' | 'controller' | 'recording';
+
 class UiStore {
   zoomIndex = $state(load('df.zoom', 2));
   libraryHeight = $state(load('df.libraryHeight', 280));
@@ -24,9 +26,9 @@ class UiStore {
   jumpBeats = $state<[number, number]>(load('df.jumpBeats', [4, 4]));
   sort = $state<{ key: string; dir: 1 | -1 }>(load('df.sort', { key: 'addedAt', dir: -1 }));
   settingsOpen = $state(false);
-  settingsTab = $state<'audio' | 'controller'>('audio');
+  settingsTab = $state<SettingsTab>('audio');
   helpOpen = $state(false);
-  browserView = $state<'library' | 'spotify'>('library');
+  browserView = $state<'library' | 'spotify' | 'history'>('library');
   collapsedFolders = $state.raw<ReadonlySet<number>>(new Set(load<number[]>('df.collapsedFolders', [])));
 
   compact = $state(false);
@@ -81,7 +83,7 @@ class UiStore {
     this.sort = this.sort.key === key ? { key, dir: this.sort.dir === 1 ? -1 : 1 } : { key, dir: 1 };
     save('df.sort', this.sort);
   }
-  openSettings(tab: 'audio' | 'controller' = 'audio') {
+  openSettings(tab: SettingsTab = 'audio') {
     this.settingsTab = tab;
     this.settingsOpen = true;
   }

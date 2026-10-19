@@ -11,6 +11,8 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
   import AudioLines from '@lucide/svelte/icons/audio-lines';
+  import History from '@lucide/svelte/icons/history';
+  import { history } from '$lib/state/history.svelte';
   import type { Playlist } from '$lib/api';
   import { tick } from 'svelte';
 
@@ -30,6 +32,11 @@
   function openLibrary(id: number | null) {
     ui.browserView = 'library';
     library.selectPlaylist(id);
+  }
+  function openHistory() {
+    ui.browserView = 'history';
+    library.focus = 'sidebar';
+    void history.refresh();
   }
   function openSpotify() {
     ui.browserView = 'spotify';
@@ -116,6 +123,10 @@
   <button class="item" class:sel={ui.browserView === 'spotify'} onclick={openSpotify}>
     <AudioLines size={14} strokeWidth={1.9} /><span class="name">Spotify</span>
     <i class="led" data-state={spotify.connected ? 'ok' : 'off'} title={spotify.connected ? 'Connected' : 'Not connected'}></i>
+  </button>
+  <button class="item" class:sel={ui.browserView === 'history'} onclick={openHistory}>
+    <History size={14} strokeWidth={1.9} /><span class="name">History</span>
+    {#if history.recording}<i class="led" data-state="bad" title="Recording"></i>{:else if history.sets.some((s) => s.live)}<i class="led" data-state="ok" title="A set is being logged"></i>{/if}
   </button>
   <div class="group">
     <span class="tiny">Playlists</span>

@@ -2,6 +2,7 @@
   import { engine } from '$lib/state/engine.svelte';
   import { ui } from '$lib/state/ui.svelte';
   import BeatFx from './BeatFx.svelte';
+  import RecordButton from './RecordButton.svelte';
   import Settings from '@lucide/svelte/icons/settings';
   import Keyboard from '@lucide/svelte/icons/keyboard';
   import Headphones from '@lucide/svelte/icons/headphones';
@@ -55,6 +56,7 @@
         <span class="num dim">—</span>
       {/if}
     </div>
+    <RecordButton />
   </div>
 
   <BeatFx />
@@ -255,7 +257,9 @@
   }
   @media (max-width: 1640px) {
     .long,
-    .meta {
+    .meta,
+    .preview,
+    .master .lbl {
       display: none;
     }
     .dev {
@@ -263,6 +267,8 @@
     }
   }
   @media (max-width: 1440px) {
+    .word,
+    .master small,
     .dev,
     .sname,
     .preview,

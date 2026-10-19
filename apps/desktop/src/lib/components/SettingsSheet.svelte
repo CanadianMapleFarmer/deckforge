@@ -3,17 +3,21 @@
   import Sheet from './Sheet.svelte';
   import AudioSettings from './AudioSettings.svelte';
   import ControllerPanel from './ControllerPanel.svelte';
+  import RecordingSettings from './RecordingSettings.svelte';
 </script>
 
 <Sheet open={ui.settingsOpen} title="Settings" onclose={() => (ui.settingsOpen = false)} width={620}>
   <div class="tabs" role="tablist">
     <button role="tab" aria-selected={ui.settingsTab === 'audio'} class:on={ui.settingsTab === 'audio'} onclick={() => (ui.settingsTab = 'audio')}>Audio</button>
     <button role="tab" aria-selected={ui.settingsTab === 'controller'} class:on={ui.settingsTab === 'controller'} onclick={() => (ui.settingsTab = 'controller')}>Controller &amp; MIDI</button>
+    <button role="tab" aria-selected={ui.settingsTab === 'recording'} class:on={ui.settingsTab === 'recording'} onclick={() => (ui.settingsTab = 'recording')}>Recording</button>
   </div>
   {#if ui.settingsTab === 'audio'}
     <AudioSettings />
-  {:else}
+  {:else if ui.settingsTab === 'controller'}
     <ControllerPanel />
+  {:else}
+    <RecordingSettings />
   {/if}
 </Sheet>
 

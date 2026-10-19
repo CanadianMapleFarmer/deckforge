@@ -4,6 +4,7 @@
   import { engine } from '$lib/state/engine.svelte';
   import Sidebar from './Sidebar.svelte';
   import SpotifyPanel from './SpotifyPanel.svelte';
+  import HistoryPanel from './HistoryPanel.svelte';
   import KeyBadge from './KeyBadge.svelte';
   import TrackTable from './TrackTable.svelte';
   import Search from '@lucide/svelte/icons/search';
@@ -58,11 +59,12 @@
   const busy = $derived(library.queued > 0 || library.analysing !== null);
   const masterIndex = $derived(engine.snap.masterDeck);
   const inSpotify = $derived(ui.browserView === 'spotify');
+  const inHistory = $derived(ui.browserView === 'history');
 </script>
 
 <section class="lib" style="--lib-h:{ui.libraryHeight}px">
   <div class="handle" onpointerdown={startResize} role="separator" aria-orientation="horizontal" aria-label="Resize library" tabindex="-1"><i></i></div>
-  {#if !inSpotify}
+  {#if !inSpotify && !inHistory}
   <div class="bar">
     <div class="search">
         <Search size={14} strokeWidth={2} />
@@ -109,6 +111,8 @@
     </div>
     {#if inSpotify}
       <SpotifyPanel />
+    {:else if inHistory}
+      <HistoryPanel />
     {:else}
       <TrackTable />
     {/if}
