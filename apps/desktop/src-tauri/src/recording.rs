@@ -158,4 +158,105 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&written[0]).unwrap(), "00:00 A – One\n04:12 B – Two\n");
         assert!(std::fs::read_to_string(&written[1]).unwrap().contains("FILE \"2026-10-19 21.05.wav\" WAVE"));
     }
+
+    #[test]
+    #[ignore = "renders ten minutes of audio; run with --ignored"]
+    fn a_ten_minute_offline_recording_matches_its_history() {
+        use std::sync::Arc;
+        use deckforge_common::{TrackAudio, HOT_CUE_SLOTS};
+        use deckforge_engine::{create_engine, LoadRequest, MixerParam, Routing};
+        use deckforge_recorder::{AudioFormat, WavWriter};
+        use crate::history::HistoryService;
+
+        const SR: u32 = 48_000;
+        const SRC: u32 = 8_000;
+        const BLOCK: usize = 512;
+        let dir = std::env::temp_dir().join(format!("deckforge-offline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lib = Library::open_in_memory().unwrap();
+        let mut files = Vec::new();
+        for name in ["Ilya Marsh - Static Bloom.wav", "Peregrine - Golden Hour.wav"] {
+            let path = dir.join(name);
+            let mut w = WavWriter::create(&path, 44_100, 16).unwrap();
+            w.write(&[[0.0; 2]; 4410]).unwrap();
+            w.finish().unwrap();
+            files.push(path);
+        }
+        assert_eq!(lib.import_paths(&files).added, 2);
+        let ids: Vec<i64> = lib.tracks("", None).unwrap().iter().map(|t| t.id).collect();
+        let (a, b) = {
+            let find = |n: &str| lib.tracks(n, None).unwrap()[0].id;
+            (find("Static"), find("Golden"))
+        };
+        assert_eq!(ids.len(), 2);
+
+        let (h, mut rt) = create_engine(SR);
+        rt.reconfigure(SR, Routing::for_channel_count(2));
+        let tone = |freq: f64| {
+            let n = SRC as usize * 7 * 60;
+            Arc::new(TrackAudio::new(SRC, (0..n).flat_map(|i| { let x = (std::f64::consts::TAU * freq * i as f64 / SRC as f64).sin() as f32 * 0.3; [x, x] }).collect()))
+        };
+        for (deck, id, freq) in [(0, a, 220.0), (1, b, 330.0)] {
+            h.send(Command::Load { deck, request: Box::new(LoadRequest { track: tone(freq), token: id as u64, grid: None, cue_secs: Some(0.0), hot_cues: [None; HOT_CUE_SLOTS] }) });
+        }
+        h.send(Command::Mixer { channel: 0, param: MixerParam::Fader(1.0) });
+        h.send(Command::Mixer { channel: 1, param: MixerParam::Fader(0.0) });
+        h.send(Command::Play { deck: 0 });
+
+        let mut history = HistoryService::default();
+        let mut out = vec![0.0f32; BLOCK * 2];
+        let mut active: Option<(Recorder, Arc<deckforge_engine::RecordShared>)> = None;
+        let mut set = None;
+        let blocks = |secs: f64| (secs * SR as f64 / BLOCK as f64).round() as usize;
+        let mut rendered_while_recording = 0usize;
+        let settings = RecordingSettings { folder: dir.clone(), format: AudioFormat::Wav, ..RecordingSettings::default() };
+        for k in 0..blocks(631.0) {
+            if k == blocks(30.0) {
+                set = history.force_start(h.snapshot().clock_secs, &lib);
+                history.set_recording(true);
+                let (tap, rx, shared) = record_channel(RECORD_RING_FRAMES);
+                active = Some((Recorder::start(&settings, rx, shared.clone(), chrono::Local::now().naive_local()).unwrap(), shared));
+                h.send(Command::SetRecordTap(RecordTapSlot::new(Some(tap))));
+            }
+            if k == blocks(240.0) {
+                h.send(Command::Play { deck: 1 });
+                h.send(Command::Mixer { channel: 1, param: MixerParam::Fader(1.0) });
+            }
+            if k == blocks(300.0) {
+                h.send(Command::Mixer { channel: 0, param: MixerParam::Fader(0.0) });
+            }
+            if k == blocks(630.0) {
+                h.send(Command::SetRecordTap(RecordTapSlot::new(None)));
+            }
+            rt.process(&mut out, 2);
+            if active.is_some() && k >= blocks(30.0) && k < blocks(630.0) {
+                rendered_while_recording += BLOCK;
+            }
+            history.observe(&h.snapshot(), &lib);
+            h.collect_garbage();
+            if k % 64 == 0 {
+                std::thread::sleep(std::time::Duration::from_micros(300));
+            }
+        }
+        let (recorder, shared) = active.unwrap();
+        let set = set.unwrap();
+        let result = recorder.stop().unwrap();
+        assert_eq!(shared.dropped(), 0, "the writer kept up");
+        assert_eq!((result.duration_secs * SR as f64).round() as usize, rendered_while_recording);
+        let origin = result.start_clock - set.clock_start;
+        let recording_id = lib.add_recording(set.id, &result.path.display().to_string(), origin, "wav").unwrap();
+        lib.finish_recording(recording_id, origin + result.duration_secs).unwrap();
+        let detail = lib.set_detail(set.id).unwrap();
+        let took_b = detail.entries.iter().find(|e| e.track_id == Some(b)).and_then(|e| e.took_over_secs).unwrap() + set.clock_start;
+        assert!((took_b - 300.0).abs() <= BLOCK as f64 / SR as f64 + 1e-9, "B took over at {took_b}");
+        let written = write_side_files(&detail, &result.path, origin, origin + result.duration_secs, &settings).unwrap();
+        let txt = std::fs::read_to_string(&written[0]).unwrap();
+        assert_eq!(txt, "00:00 Ilya Marsh - Static Bloom\n04:30 Peregrine - Golden Hour\n", "{txt}");
+        let mut wav = hound::WavReader::open(&result.path).unwrap();
+        assert_eq!(wav.duration() as usize, rendered_while_recording);
+        let peak = wav.samples::<i32>().skip(SR as usize * 120).take(SR as usize).map(|s| s.unwrap().abs()).max().unwrap();
+        let centre = deckforge_dsp::crossfader_gains(0.5, deckforge_common::CrossfaderCurve::default()).0 as f64;
+        assert!((peak as f64 / 8_388_607.0 - 0.3 * centre).abs() < 0.01, "deck A at full fader through a centred crossfader, peak {peak}");
+        eprintln!("recorded {} s to {}", result.duration_secs, result.path.display());
+    }
 }
