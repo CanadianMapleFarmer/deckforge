@@ -53,7 +53,7 @@ unicode-normalization = "0.1"
 keyring = "3.6"
 open = "5"
 flacenc = "0.5"
-rubato = "0.16"
+rubato = "5.0"
 fs4 = { version = "0.13", features = ["sync"] }
 
 [profile.dev.package."*"]
