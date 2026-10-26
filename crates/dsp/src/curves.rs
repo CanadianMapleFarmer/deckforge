@@ -12,6 +12,7 @@ pub fn crossfader_gains(position: f32, curve: CrossfaderCurve) -> (f32, f32) {
             const CUT: f32 = 0.04;
             (((1.0 - x) / CUT).min(1.0), (x / CUT).min(1.0))
         }
+        CrossfaderCurve::Off => (1.0, 1.0),
     }
 }
 

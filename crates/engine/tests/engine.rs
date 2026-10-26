@@ -585,3 +585,57 @@ fn engine_keeps_feeding_the_tap_across_primary_reconfigure() {
     assert_eq!(shared.stats().underruns, 0);
     assert!(tail.iter().any(|v| v.abs() > 0.05), "mirror still carries audio after the reconfigure");
 }
+
+#[test]
+fn crossfader_off_lets_both_decks_through_wherever_it_sits() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::Play { deck: 0 });
+    h.send(Command::Play { deck: 1 });
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    for position in [0.0, 1.0] {
+        h.send(Command::Crossfader(position));
+        let out = run(&mut rt, 0.5);
+        assert!(level(&out, 0, A_HZ) > 0.2, "A full with crossfader off at {position}");
+        assert!(level(&out, 0, B_HZ) > 0.2, "B full with crossfader off at {position}");
+    }
+    let s = h.snapshot();
+    assert_eq!(s.master.curve, CrossfaderCurve::Off);
+    assert!(!s.master.crossfader_active);
+}
+
+#[test]
+fn turning_the_crossfader_back_on_waits_for_it_to_pass_the_centre() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::Play { deck: 0 });
+    h.send(Command::Play { deck: 1 });
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    h.send(Command::Crossfader(0.0));
+    run(&mut rt, 0.2);
+
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::EqualPower));
+    let out = run(&mut rt, 0.5);
+    assert!(level(&out, 0, B_HZ) > 0.2, "B keeps playing until the crossfader is picked up");
+    assert!(!h.snapshot().master.crossfader_active);
+
+    h.send(Command::Crossfader(0.3));
+    let out = run(&mut rt, 0.5);
+    assert!(level(&out, 0, B_HZ) > 0.2, "still on A's side, not picked up");
+
+    h.send(Command::Crossfader(0.52));
+    run(&mut rt, 0.1);
+    assert!(h.snapshot().master.crossfader_active, "crossing the centre picks it up");
+
+    h.send(Command::Crossfader(0.0));
+    let out = run(&mut rt, 0.5);
+    assert!(level(&out, 0, B_HZ) < 0.002, "crossfader works again");
+}
+
+#[test]
+fn turning_the_crossfader_on_at_the_centre_engages_at_once() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    h.send(Command::Crossfader(0.5));
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Linear));
+    run(&mut rt, 0.05);
+    assert!(h.snapshot().master.crossfader_active);
+}

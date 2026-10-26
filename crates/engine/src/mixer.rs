@@ -14,6 +14,7 @@ const TRIM_RANGE_DB: f32 = 12.0;
 const SMOOTH_MS: f32 = 15.0;
 const CLIP_HOLD_SECS: f32 = 1.0;
 const COLOR_FILTER_PAIR_SCALE: f32 = 0.5;
+const XF_PICKUP_WINDOW: f32 = 0.02;
 
 /// Knob 0..1 → gain: -inf..0 dB below centre is not wanted for trim, so trim spans ±12 dB.
 pub fn trim_gain(value: f32) -> f32 {
@@ -211,7 +212,10 @@ pub struct Mixer {
     sample_rate: f32,
     pub channels: [Channel; DECK_COUNT],
     pub crossfader: f32,
-    pub curve: CrossfaderCurve,
+    curve: CrossfaderCurve,
+    xf_curve: CrossfaderCurve,
+    xf_pickup: bool,
+    xf_engage: Smoothed,
     pub level: f32,
     pub headphone_mix: f32,
     pub headphone_level: f32,
@@ -255,6 +259,9 @@ impl Mixer {
             channels: [Channel::new(sample_rate, 1), Channel::new(sample_rate, 2)],
             crossfader: 0.5,
             curve: CrossfaderCurve::default(),
+            xf_curve: CrossfaderCurve::default(),
+            xf_pickup: false,
+            xf_engage: Smoothed::new(1.0, sample_rate, SMOOTH_MS),
             level: 0.8,
             headphone_mix: 0.0,
             headphone_level: 0.7,
@@ -558,8 +565,39 @@ impl Mixer {
     }
 
     pub fn set_crossfader(&mut self, v: f32) {
+        let previous = self.crossfader;
         self.crossfader = v.clamp(0.0, 1.0);
         self.xf.set(self.crossfader);
+        let crossed = (previous - 0.5) * (self.crossfader - 0.5) <= 0.0;
+        if self.xf_pickup && (crossed || (self.crossfader - 0.5).abs() <= XF_PICKUP_WINDOW) {
+            self.xf_pickup = false;
+            self.refresh_crossfader();
+        }
+    }
+
+    /// Leaving Off waits for the crossfader to reach the centre, so turning it back on never jumps the mix.
+    pub fn set_curve(&mut self, curve: CrossfaderCurve) {
+        let was_off = self.curve == CrossfaderCurve::Off;
+        self.curve = curve;
+        if curve != CrossfaderCurve::Off {
+            self.xf_curve = curve;
+            if was_off {
+                self.xf_pickup = (self.crossfader - 0.5).abs() > XF_PICKUP_WINDOW;
+            }
+        }
+        self.refresh_crossfader();
+    }
+
+    pub fn curve(&self) -> CrossfaderCurve {
+        self.curve
+    }
+
+    pub fn crossfader_active(&self) -> bool {
+        self.curve != CrossfaderCurve::Off && !self.xf_pickup
+    }
+
+    fn refresh_crossfader(&mut self) {
+        self.xf_engage.set(if self.crossfader_active() { 1.0 } else { 0.0 });
     }
 
     pub fn set_level(&mut self, v: f32) {
@@ -585,11 +623,12 @@ impl Mixer {
         self.master_r[..n].fill(0.0);
 
         let applied = self.fx_applied;
-        let curve = self.curve;
+        let curve = self.xf_curve;
         let mut xf_gains = [[0f32; 2]; MAX_BLOCK];
         for g in xf_gains.iter_mut().take(n) {
+            let engage = self.xf_engage.next();
             let (a, b) = crossfader_gains(self.xf.next(), curve);
-            *g = [a, b];
+            *g = [1.0 + (a - 1.0) * engage, 1.0 + (b - 1.0) * engage];
         }
 
         for (idx, (l, r)) in decks.into_iter().enumerate() {
@@ -685,6 +724,7 @@ impl Mixer {
         MasterSnapshot {
             crossfader: self.crossfader,
             curve: self.curve,
+            crossfader_active: self.crossfader_active(),
             eq_curve: self.eq_curve(),
             level: self.level,
             headphone_mix: self.headphone_mix,

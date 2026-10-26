@@ -5,7 +5,7 @@ use deckforge_library::history::{DeckObservation, Observation, SetTracker, Track
 use deckforge_library::Library;
 
 pub fn observation(snap: &EngineSnapshot) -> Observation {
-    let (left, right) = crossfader_gains(snap.master.crossfader, snap.master.curve);
+    let (left, right) = if snap.master.crossfader_active { crossfader_gains(snap.master.crossfader, snap.master.curve) } else { (1.0, 1.0) };
     let decks = std::array::from_fn(|i| {
         let d = &snap.decks[i];
         let side = if i == 0 { left } else { right };
@@ -124,6 +124,7 @@ mod tests {
         }
         s.master.crossfader = crossfader;
         s.master.curve = CrossfaderCurve::default();
+        s.master.crossfader_active = true;
         s
     }
 
@@ -140,6 +141,17 @@ mod tests {
         scratching.decks[0].jog_touched = true;
         assert!(observation(&scratching).decks[0].playing);
         assert_eq!(observation(&scratching).decks[1].track_id, 0);
+    }
+
+    #[test]
+    fn an_inactive_crossfader_is_ignored() {
+        let mut off = snap(0.0, [(7, true, 1.0), (9, true, 1.0)], 0.0);
+        off.master.curve = CrossfaderCurve::Off;
+        off.master.crossfader_active = false;
+        assert_eq!(observation(&off).decks[1].gain, 1.0);
+        let mut awaiting_pickup = snap(0.0, [(7, true, 1.0), (9, true, 1.0)], 0.0);
+        awaiting_pickup.master.crossfader_active = false;
+        assert_eq!(observation(&awaiting_pickup).decks[1].gain, 1.0, "B is audible until the crossfader is picked up");
     }
 
     #[test]
