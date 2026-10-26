@@ -3,7 +3,7 @@ use deckforge_common::{
     FxTarget, FxTrigger, PadVoice, ReleaseFxKind, SmartCfxPreset, BEAT_FX_PERCENT_DEFAULT, COLOR_FX_MAX_PARAMS, DECK_COUNT, RELEASE_FX_DEFAULT_BEATS,
 };
 use deckforge_dsp::{
-    channel_fader_gain, crossfader_gains, soft_limit, BeatFx, ChannelEq, ColorFx, DjFilter, PeakMeter, ReleaseFx, SmartCfx, Smoothed, Transport,
+    channel_fader_gain, crossfader_gains, BeatFx, ChannelEq, ColorFx, DjFilter, PeakLimiter, PeakMeter, ReleaseFx, SmartCfx, Smoothed, Transport,
 };
 
 use crate::command::MixerParam;
@@ -15,6 +15,11 @@ const SMOOTH_MS: f32 = 15.0;
 const CLIP_HOLD_SECS: f32 = 1.0;
 const COLOR_FILTER_PAIR_SCALE: f32 = 0.5;
 const XF_PICKUP_WINDOW: f32 = 0.02;
+const LIMITING_GAIN: f32 = 0.999;
+
+fn backstop(x: f32) -> f32 {
+    x.clamp(-1.0, 1.0)
+}
 
 /// Knob 0..1 → gain: -inf..0 dB below centre is not wanted for trim, so trim spans ±12 dB.
 pub fn trim_gain(value: f32) -> f32 {
@@ -233,6 +238,9 @@ pub struct Mixer {
     pub rec_r: Vec<f32>,
     master_meter: [PeakMeter; 2],
     cue_meter: [PeakMeter; 2],
+    master_limiter: PeakLimiter,
+    rec_limiter: PeakLimiter,
+    phones_limiter: PeakLimiter,
     clip_hold: f32,
     limiting: bool,
     pub hardware_phones: bool,
@@ -279,6 +287,9 @@ impl Mixer {
             rec_r: vec![0.0; MAX_BLOCK],
             master_meter: [PeakMeter::default(); 2],
             cue_meter: [PeakMeter::default(); 2],
+            master_limiter: PeakLimiter::new(sample_rate),
+            rec_limiter: PeakLimiter::new(sample_rate),
+            phones_limiter: PeakLimiter::new(sample_rate),
             clip_hold: 0.0,
             limiting: false,
             hardware_phones: false,
@@ -319,6 +330,9 @@ impl Mixer {
         }
         m.set_crossfader(self.crossfader);
         m.curve = self.curve;
+        m.xf_curve = self.xf_curve;
+        m.xf_pickup = self.xf_pickup;
+        m.xf_engage.reset(if m.crossfader_active() { 1.0 } else { 0.0 });
         m.set_eq_curve(self.eq_curve());
         m.set_level(self.level);
         m.set_headphone_mix(self.headphone_mix);
@@ -661,16 +675,17 @@ impl Mixer {
         let mut clipped = false;
         let mut limited = false;
         for i in 0..n {
-            self.rec_l[i] = soft_limit(self.master_l[i]);
-            self.rec_r[i] = soft_limit(self.master_r[i]);
+            let (rl, rr) = self.rec_limiter.process(self.master_l[i], self.master_r[i]);
+            self.rec_l[i] = backstop(rl);
+            self.rec_r[i] = backstop(rr);
             let mg = self.master.next();
             let ml = self.master_l[i] * mg;
             let mr = self.master_r[i] * mg;
             clipped |= ml.abs() > 1.0 || mr.abs() > 1.0;
-            let (ol, or) = (soft_limit(ml), soft_limit(mr));
-            limited |= ol != ml || or != mr;
-            self.master_l[i] = ol;
-            self.master_r[i] = or;
+            let (ol, or) = self.master_limiter.process(ml, mr);
+            limited |= self.master_limiter.gain() < LIMITING_GAIN;
+            self.master_l[i] = backstop(ol);
+            self.master_r[i] = backstop(or);
             self.master_meter[0].feed(ml);
             self.master_meter[1].feed(mr);
             self.cue_meter[0].feed(self.cue_l[i]);
@@ -678,15 +693,15 @@ impl Mixer {
 
             let mix = self.hp_mix.next();
             let hp = self.hp_level.next();
-            if self.hardware_phones {
-                self.phones_l[i] = soft_limit(self.cue_l[i]);
-                self.phones_r[i] = soft_limit(self.cue_r[i]);
+            let (pl, pr) = if self.hardware_phones {
+                self.phones_limiter.process(self.cue_l[i], self.cue_r[i])
             } else {
                 let cue_part = (2.0 * (1.0 - mix)).min(1.0);
                 let master_part = (2.0 * mix).min(1.0);
-                self.phones_l[i] = soft_limit((self.cue_l[i] * cue_part + ol * master_part) * hp);
-                self.phones_r[i] = soft_limit((self.cue_r[i] * cue_part + or * master_part) * hp);
-            }
+                self.phones_limiter.process((self.cue_l[i] * cue_part + ml * master_part) * hp, (self.cue_r[i] * cue_part + mr * master_part) * hp)
+            };
+            self.phones_l[i] = backstop(pl);
+            self.phones_r[i] = backstop(pr);
         }
 
         let sr = self.sample_rate;
