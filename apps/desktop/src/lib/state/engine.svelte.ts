@@ -17,7 +17,7 @@ export const EMPTY_SNAPSHOT: EngineSnapshot = {
   decks: [emptyDeck(), emptyDeck()],
   channels: [emptyChannel(), emptyChannel()],
   master: {
-    crossfader: 0.5, curve: 'equal-power', eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.5, meterL: 0, meterR: 0,
+    crossfader: 0.5, curve: 'equal-power', crossfaderActive: true, eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.5, meterL: 0, meterR: 0,
     cueMeterL: 0, cueMeterR: 0, clipping: false, limiting: false, hardwarePhones: false,
   },
   quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, clockSecs: 0, outputLatencySecs: 0, callbackLoad: 0, cueAvailable: true,

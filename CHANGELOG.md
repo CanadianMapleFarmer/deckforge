@@ -4,6 +4,13 @@ All notable changes to deckforge are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+- Crossfader **Off**, next to Lin / Pwr / Cut. Both decks play through wherever the crossfader sits, on screen and on the FLX4. When you switch it back on, it takes over once you move it past the centre, so the mix never jumps.
+- Key lock is remembered for each deck between launches.
+
+### Fixed
+- Turning the trims or master up no longer distorts. A look-ahead peak limiter on the master, headphones and recording turns peaks down instead of clipping them, so pushing the levels makes the mix louder and denser rather than crunchy.
+
 ## [0.4.0] - 2026-10-19
 
 ### Added

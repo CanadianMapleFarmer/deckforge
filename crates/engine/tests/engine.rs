@@ -585,3 +585,107 @@ fn engine_keeps_feeding_the_tap_across_primary_reconfigure() {
     assert_eq!(shared.stats().underruns, 0);
     assert!(tail.iter().any(|v| v.abs() > 0.05), "mirror still carries audio after the reconfigure");
 }
+
+#[test]
+fn crossfader_off_lets_both_decks_through_wherever_it_sits() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::Play { deck: 0 });
+    h.send(Command::Play { deck: 1 });
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    for position in [0.0, 1.0] {
+        h.send(Command::Crossfader(position));
+        let out = run(&mut rt, 0.5);
+        assert!(level(&out, 0, A_HZ) > 0.2, "A full with crossfader off at {position}");
+        assert!(level(&out, 0, B_HZ) > 0.2, "B full with crossfader off at {position}");
+    }
+    let s = h.snapshot();
+    assert_eq!(s.master.curve, CrossfaderCurve::Off);
+    assert!(!s.master.crossfader_active);
+}
+
+#[test]
+fn turning_the_crossfader_back_on_waits_for_it_to_pass_the_centre() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::Play { deck: 0 });
+    h.send(Command::Play { deck: 1 });
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    h.send(Command::Crossfader(0.0));
+    run(&mut rt, 0.2);
+
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::EqualPower));
+    let out = run(&mut rt, 0.5);
+    assert!(level(&out, 0, B_HZ) > 0.2, "B keeps playing until the crossfader is picked up");
+    assert!(!h.snapshot().master.crossfader_active);
+
+    h.send(Command::Crossfader(0.3));
+    let out = run(&mut rt, 0.5);
+    assert!(level(&out, 0, B_HZ) > 0.2, "still on A's side, not picked up");
+
+    h.send(Command::Crossfader(0.52));
+    run(&mut rt, 0.1);
+    assert!(h.snapshot().master.crossfader_active, "crossing the centre picks it up");
+
+    h.send(Command::Crossfader(0.0));
+    let out = run(&mut rt, 0.5);
+    assert!(level(&out, 0, B_HZ) < 0.002, "crossfader works again");
+}
+
+#[test]
+fn turning_the_crossfader_on_at_the_centre_engages_at_once() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    h.send(Command::Crossfader(0.5));
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Linear));
+    run(&mut rt, 0.05);
+    assert!(h.snapshot().master.crossfader_active);
+}
+
+fn thd(out: &[f32], channel: usize, freq: f64) -> f64 {
+    let harmonics: f64 = (2..10).map(|h| level(out, channel, freq * h as f64).powi(2)).sum();
+    harmonics.sqrt() / level(out, channel, freq)
+}
+
+#[test]
+fn cranked_trim_and_master_are_limited_without_distortion() {
+    let (h, mut rt) = rig();
+    let loud = Arc::new(TrackAudio::new(SR, (0..SR as usize * 4).flat_map(|i| {
+        let s = (std::f64::consts::TAU * 1_000.0 * i as f64 / SR as f64).sin() as f32;
+        [s, s]
+    }).collect()));
+    load(&h, 0, loud, None);
+    mixer(&h, 0, MixerParam::Fader(1.0));
+    mixer(&h, 0, MixerParam::Trim(1.0));
+    mixer(&h, 0, MixerParam::Pfl(true));
+    h.send(Command::Crossfader(0.0));
+    h.send(Command::MasterLevel(1.0));
+    h.send(Command::HeadphoneMix(0.0));
+    h.send(Command::HeadphoneLevel(1.0));
+    h.send(Command::Play { deck: 0 });
+    run(&mut rt, 2.5);
+    let out = run(&mut rt, 1.024);
+    for (channel, bus) in [(0, "master"), (2, "headphones")] {
+        let distortion = thd(&out, channel, 1_000.0);
+        assert!(distortion < 0.01, "{bus} THD {:.1} %", distortion * 100.0);
+        assert!(level(&out, channel, 1_000.0) > 0.85, "{bus} stays loud");
+    }
+    assert!(out.iter().all(|x| x.abs() <= 1.0));
+    assert!(h.snapshot().master.limiting);
+}
+
+#[test]
+fn crossfader_off_survives_an_output_rate_change() {
+    let (h, mut rt) = two_tone_rig();
+    h.send(Command::Play { deck: 0 });
+    h.send(Command::Play { deck: 1 });
+    h.send(Command::CrossfaderCurve(CrossfaderCurve::Off));
+    h.send(Command::Crossfader(0.0));
+    run(&mut rt, 0.1);
+    mixer(&h, 0, MixerParam::Fader(0.0));
+    rt.reconfigure(44_100, Routing::for_channel_count(CH));
+    let out = run(&mut rt, 0.5);
+    let tail: Vec<f32> = out.chunks(CH).skip(out.len() / CH / 2).map(|f| f[0]).collect();
+    let rms = (tail.iter().map(|x| x * x).sum::<f32>() / tail.len() as f32).sqrt();
+    assert!(rms > 0.2, "B still passes after the mixer is rebuilt, rms {rms}");
+    assert!(!h.snapshot().master.crossfader_active);
+}
+

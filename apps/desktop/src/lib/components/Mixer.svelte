@@ -29,6 +29,7 @@
     { id: 'linear', label: 'Lin', title: 'Linear blend' },
     { id: 'equal-power', label: 'Pwr', title: 'Equal-power blend' },
     { id: 'sharp', label: 'Cut', title: 'Sharp cut (scratch curve)' },
+    { id: 'off', label: 'Off', title: 'Crossfader off: both decks play through wherever it sits' },
   ];
   const COLOR_FX: { value: ColorFxKind; label: string }[] = [
     { value: 'filter', label: 'Filter' },
@@ -121,7 +122,7 @@
 
   <div class="xf">
     <b class="end" style="color:var(--deck-a)">A</b>
-    <div class="xfw"><Fader orientation="horizontal" value={master.crossfader} reset={0.5} detent={0.5} capSize={30} fill="none" label="Crossfader" ticks={[0, 0.25, 0.5, 0.75, 1]} onchange={(v) => cmd({ type: 'crossfader', value: v })} /></div>
+    <div class="xfw" class:idle={!master.crossfaderActive} title={master.curve === 'off' ? 'Crossfader is off' : master.crossfaderActive ? undefined : 'Move the crossfader past the centre to turn it back on'}><Fader orientation="horizontal" value={master.crossfader} reset={0.5} detent={0.5} capSize={30} fill="none" label="Crossfader" ticks={[0, 0.25, 0.5, 0.75, 1]} onchange={(v) => cmd({ type: 'crossfader', value: v })} /></div>
     <b class="end" style="color:var(--deck-b)">B</b>
     <div class="seg" role="group" aria-label="Crossfader curve">
       {#each CURVES as cv (cv.id)}
@@ -451,6 +452,10 @@
   .xfw {
     flex: 1;
     min-width: 0;
+    transition: opacity 120ms;
+  }
+  .xfw.idle {
+    opacity: 0.4;
   }
   .end {
     font-size: 12px;
