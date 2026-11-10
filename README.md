@@ -7,9 +7,9 @@
 **A fast, native two-deck DJ app built for the Pioneer DJ DDJ-FLX4.**
 Real-time Rust audio engine · GPU waveforms · Tauri 2 + Svelte 5 interface
 
-[![CI](https://github.com/CanadianMapleFarmer/deckforge/actions/workflows/ci.yml/badge.svg)](https://github.com/CanadianMapleFarmer/deckforge/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/CanadianMapleFarmer/deckforge?include_prereleases&sort=semver&color=4d6bff)](https://github.com/CanadianMapleFarmer/deckforge/releases)
-[![Downloads](https://img.shields.io/github/downloads/CanadianMapleFarmer/deckforge/total?color=ff4aa8)](https://github.com/CanadianMapleFarmer/deckforge/releases)
+[![CI](https://github.com/kloppers-labs/deckforge/actions/workflows/ci.yml/badge.svg)](https://github.com/kloppers-labs/deckforge/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kloppers-labs/deckforge?include_prereleases&sort=semver&color=4d6bff)](https://github.com/kloppers-labs/deckforge/releases)
+[![Downloads](https://img.shields.io/github/downloads/kloppers-labs/deckforge/total?color=ff4aa8)](https://github.com/kloppers-labs/deckforge/releases)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-1ee3ff)](#license)
 <br>
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-0d0f17)](#download)
@@ -67,7 +67,7 @@ Your music files are only ever read, never modified.
 
 ## Download
 
-Grab the latest build from [**Releases**](https://github.com/CanadianMapleFarmer/deckforge/releases).
+Grab the latest build from [**Releases**](https://github.com/kloppers-labs/deckforge/releases).
 
 | Platform | File |
 |---|---|
@@ -91,7 +91,7 @@ sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchel
 ```
 
 ```bash
-git clone https://github.com/CanadianMapleFarmer/deckforge.git
+git clone https://github.com/kloppers-labs/deckforge.git
 cd deckforge/apps/desktop
 pnpm install
 pnpm tauri dev      # development build with hot reload

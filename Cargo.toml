@@ -9,8 +9,8 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
 authors = ["Gerhard Kloppers"]
-repository = "https://github.com/CanadianMapleFarmer/deckforge"
-homepage = "https://github.com/CanadianMapleFarmer/deckforge"
+repository = "https://github.com/kloppers-labs/deckforge"
+homepage = "https://github.com/kloppers-labs/deckforge"
 
 [workspace.dependencies]
 deckforge-common = { path = "crates/common" }

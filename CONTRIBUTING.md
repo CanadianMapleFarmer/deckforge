@@ -4,7 +4,7 @@ Thanks for helping out! Bug reports, controller test results and pull requests a
 
 ## Reporting bugs
 
-Open an [issue](https://github.com/CanadianMapleFarmer/deckforge/issues/new/choose) with your OS, deckforge version, audio device and controller. For controller problems, the MIDI log from **Settings → MIDI diagnostics** helps a lot.
+Open an [issue](https://github.com/kloppers-labs/deckforge/issues/new/choose) with your OS, deckforge version, audio device and controller. For controller problems, the MIDI log from **Settings → MIDI diagnostics** helps a lot.
 
 ## Development setup
 
