@@ -56,6 +56,7 @@ pub struct ChannelSnapshot {
 pub struct MasterSnapshot {
     pub crossfader: f32,
     pub curve: CrossfaderCurve,
+    pub crossfader_active: bool,
     pub eq_curve: EqCurve,
     pub level: f32,
     pub headphone_mix: f32,

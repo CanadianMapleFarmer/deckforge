@@ -189,7 +189,7 @@ const state: EngineSnapshot = {
   decks: [emptyDeck(), emptyDeck()],
   channels: [emptyChannel(), emptyChannel()],
   master: {
-    crossfader: 0.5, curve: 'equal-power', eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.6, meterL: 0, meterR: 0,
+    crossfader: 0.5, curve: 'equal-power', crossfaderActive: true, eqCurve: 'eq', level: 0.8, headphoneMix: 0.5, headphoneLevel: 0.6, meterL: 0, meterR: 0,
     cueMeterL: 0, cueMeterR: 0, clipping: false, limiting: false, hardwarePhones: true,
   },
   quantize: true, masterDeck: null, sampleRate: 48000, framesProcessed: 0, clockSecs: 0, outputLatencySecs: 0.01, callbackLoad: 0.1, cueAvailable: true,
@@ -352,7 +352,7 @@ function engineCommand(c: UiCommand) {
     case 'fader': state.channels[c.channel].fader = c.value; break;
     case 'pfl': state.channels[c.channel].pfl = c.enabled; break;
     case 'crossfader': state.master.crossfader = c.value; break;
-    case 'crossfaderCurve': state.master.curve = c.curve; break;
+    case 'crossfaderCurve': state.master.curve = c.curve; state.master.crossfaderActive = c.curve !== 'off'; break;
     case 'eqCurve': state.master.eqCurve = c.curve; break;
     case 'masterLevel': state.master.level = c.value; break;
     case 'headphoneMix': state.master.headphoneMix = c.value; break;

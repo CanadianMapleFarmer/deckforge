@@ -35,6 +35,7 @@
     { id: 'linear', label: 'Linear' },
     { id: 'equal-power', label: 'Equal power' },
     { id: 'sharp', label: 'Sharp cut' },
+    { id: 'off', label: 'Off' },
   ];
   const EQ_CURVES: { id: EqCurve; label: string; title: string }[] = [
     { id: 'eq', label: 'EQ', title: 'DJM-900NXS2 EQ: gentle near the centre, -26 dB fully off' },

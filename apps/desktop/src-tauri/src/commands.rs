@@ -235,15 +235,7 @@ mod ui_command_tests {
 
 #[tauri::command]
 pub fn engine_command(state: State<'_, AppState>, cmd: UiCommand) -> CmdResult<()> {
-    if let UiCommand::HardwarePhones { enabled } = &cmd {
-        let _ = state.library.set_setting("audio.hardwarePhones", enabled);
-    }
-    if let UiCommand::CrossfaderCurve { curve } = &cmd {
-        let _ = state.library.set_setting("mixer.crossfaderCurve", curve);
-    }
-    if let UiCommand::EqCurve { curve } = &cmd {
-        let _ = state.library.set_setting("mixer.eqCurve", curve);
-    }
+    crate::remembered::remember(&state.library, &cmd);
     if state.engine.send(cmd.into()) { Ok(()) } else { Err("engine command queue full".into()) }
 }
 

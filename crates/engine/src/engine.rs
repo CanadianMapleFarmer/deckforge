@@ -312,7 +312,7 @@ impl RtEngine {
             }
             Command::Mixer { channel, param } => self.mixer.channel(channel, param),
             Command::Crossfader(v) => self.mixer.set_crossfader(v),
-            Command::CrossfaderCurve(c) => self.mixer.curve = c,
+            Command::CrossfaderCurve(c) => self.mixer.set_curve(c),
             Command::EqCurve(c) => self.mixer.set_eq_curve(c),
             Command::MasterLevel(v) => self.mixer.set_level(v),
             Command::SetRecordTap(slot) => self.swap_record_tap(slot),

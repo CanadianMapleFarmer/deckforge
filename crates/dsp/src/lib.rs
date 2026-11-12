@@ -14,7 +14,7 @@ pub use curves::{channel_fader_gain, crossfader_gains};
 pub use filter::DjFilter;
 pub use fx::{reverb_rt60_for_percent, AscendLanding, AscendRequest, BackwashArm, BackwashRequest, BeatFx, ColorFx, ReleaseFx, SmartCfx, Transport};
 pub use isolator::{ChannelEq, Isolator};
-pub use limiter::soft_limit;
+pub use limiter::{soft_limit, PeakLimiter};
 pub use meter::PeakMeter;
 pub use smooth::Smoothed;
 pub use stretch::Stretcher;

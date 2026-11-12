@@ -3,6 +3,7 @@ mod commands;
 mod history;
 mod native_view;
 mod recording;
+mod remembered;
 pub mod spotify;
 mod state;
 
@@ -190,18 +191,12 @@ pub fn run() {
             }
             let (handle, rt) = create_engine(ENGINE_RATE);
             let engine = Arc::new(handle);
-            if let Some(hw) = library.setting::<bool>("audio.hardwarePhones") {
-                engine.send(Command::HardwarePhones(hw));
-            }
-            if let Some(curve) = library.setting("mixer.crossfaderCurve") {
-                engine.send(Command::CrossfaderCurve(curve));
-            }
-            if let Some(curve) = library.setting("mixer.eqCurve") {
-                engine.send(Command::EqCurve(curve));
+            for cmd in remembered::restore(&library) {
+                engine.send(cmd);
             }
             let audio = AudioManager::spawn(rt);
             let (request, targets_flx4) = initial_output(&library);
-            if targets_flx4 && library.setting::<bool>("audio.hardwarePhones").is_none() {
+            if targets_flx4 && !remembered::hardware_phones_saved(&library) {
                 engine.send(Command::HardwarePhones(true));
             }
             if let Err(e) = audio.open(request) {

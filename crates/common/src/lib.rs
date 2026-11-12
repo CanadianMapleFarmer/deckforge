@@ -100,6 +100,7 @@ pub enum CrossfaderCurve {
     #[default]
     EqualPower,
     Sharp,
+    Off,
 }
 
 /// Channel EQ knob behaviour, after the DJM-900NXS2 EQ CURVE switch: `Eq` cuts to -26 dB, `Isolator` kills fully.

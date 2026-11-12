@@ -2,7 +2,7 @@
 
 export type DeckIndex = 0 | 1;
 export type TempoRange = 'Six' | 'Ten' | 'Sixteen' | 'Wide';
-export type CrossfaderCurve = 'linear' | 'equal-power' | 'sharp';
+export type CrossfaderCurve = 'linear' | 'equal-power' | 'sharp' | 'off';
 export type EqCurve = 'eq' | 'isolator';
 export type BandName = 'Low' | 'Mid' | 'High';
 
@@ -55,6 +55,7 @@ export interface ChannelSnapshot {
 export interface MasterSnapshot {
   crossfader: number; // 0 = deck A, 1 = deck B
   curve: CrossfaderCurve;
+  crossfaderActive: boolean; // false while off, or after switching on until it passes the centre
   eqCurve: EqCurve;
   level: number; // 0..1, 0.8 = unity
   headphoneMix: number; // 0 = cue, 1 = master
